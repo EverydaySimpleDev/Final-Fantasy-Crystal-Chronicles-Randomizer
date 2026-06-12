@@ -17,8 +17,10 @@ always creates a separate output ISO (you choose where).
 import contextlib
 import io
 import os
+import queue
 import random
 import shutil
+import threading
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
 
@@ -147,13 +149,20 @@ class RandomizerTab(ttk.Frame):
                         variable=self.fill).pack(side="left", padx=12)
 
         btns = ttk.Frame(self); btns.pack(fill="x", pady=4)
-        ttk.Button(btns, text="List dungeons", command=self.do_list).pack(side="left")
-        ttk.Button(btns, text="Preview", command=lambda: self.do_run(False)).pack(side="left", padx=4)
-        ttk.Button(btns, text="Randomize!", command=lambda: self.do_run(True)).pack(side="left")
+        self._buttons = []
+        b = ttk.Button(btns, text="List dungeons", command=self.do_list); b.pack(side="left"); self._buttons.append(b)
+        b = ttk.Button(btns, text="Preview", command=lambda: self.do_run(False)); b.pack(side="left", padx=4); self._buttons.append(b)
+        b = ttk.Button(btns, text="Randomize!", command=lambda: self.do_run(True)); b.pack(side="left"); self._buttons.append(b)
         ttk.Separator(btns, orient="vertical").pack(side="left", fill="y", padx=8)
-        ttk.Button(btns, text="Write spoiler", command=self.do_spoiler).pack(side="left", padx=2)
-        ttk.Button(btns, text="Export JSON", command=self.do_export).pack(side="left", padx=2)
-        ttk.Button(btns, text="Patch from JSON…", command=self.do_patch).pack(side="left", padx=2)
+        b = ttk.Button(btns, text="Write spoiler", command=self.do_spoiler); b.pack(side="left", padx=2); self._buttons.append(b)
+        b = ttk.Button(btns, text="Export JSON", command=self.do_export); b.pack(side="left", padx=2); self._buttons.append(b)
+        b = ttk.Button(btns, text="Patch from JSON…", command=self.do_patch); b.pack(side="left", padx=2); self._buttons.append(b)
+
+        pf = ttk.Frame(self); pf.pack(fill="x", pady=(4, 0))
+        self.prog_lbl = ttk.Label(pf, text="", anchor="w")
+        self.prog_lbl.pack(fill="x")
+        self.progress = ttk.Progressbar(pf, mode="determinate")
+        self.progress.pack(fill="x")                     # full width of the tab
 
         self.log = LogPanel(self); self.log.pack(fill="both", expand=True)
 
@@ -245,7 +254,82 @@ class RandomizerTab(ttk.Frame):
         out = self._need_out(src)
         if not out or not self._make_copy(src, out):
             return
-        self.log.write(run_capture(rnd.cmd_run, out, self._ns(), True))
+        self._randomize(out, self._ns())
+
+    def _set_busy(self, busy):
+        for b in self._buttons:
+            b.config(state="disabled" if busy else "normal")
+
+    def _randomize(self, out, ns):
+        """Randomize the output ISO on a background thread (so the UI stays
+        responsive and the progress bar updates), reporting only how many slots
+        changed - never the items. A spoiler file is written for later reference."""
+        pool = rnd.build_pool(ns.pool)
+        if not pool:
+            self.log.write(f"[error] empty pool for '{ns.pool}'"); return
+        found = rnd.dungeons_in_iso(out)
+        if ns.dungeon:
+            want = set(ns.dungeon)
+            found = [d for d in found if d[0] in want]
+        if not found:
+            self.log.write("[error] no matching dungeons"); return
+        self.progress.config(maximum=len(found) + 1, value=0)
+        self.log.write(f"Randomizing {os.path.basename(out)}  "
+                       f"(seed {ns.seed}, mode {ns.mode}, rolls {ns.rolls}, "
+                       f"max {ns.max_artifacts} artifacts/cycle)")
+        self._set_busy(True)
+        self._q = queue.Queue()
+        worker = threading.Thread(target=self._rand_worker,
+                                  args=(out, ns, pool, found), daemon=True)
+        worker.start()
+        self.after(60, self._poll_rand)
+
+    def _rand_worker(self, out, ns, pool, found):
+        """Runs OFF the UI thread. Communicates only via self._q (never touches
+        widgets directly - tkinter isn't thread-safe)."""
+        rng = random.Random(ns.seed)
+        total = 0
+        try:
+            for i, (script, friendly, disc) in enumerate(found, 1):
+                self._q.put(("label", f"Randomizing: {friendly}"))
+                try:
+                    changes = rnd.randomize_dungeon(out, script, disc, rng, ns.mode, pool,
+                                                    ns.fill_empty, True, ns.rolls, ns.max_artifacts)
+                except Exception as e:
+                    self._q.put(("log", f"  [error] {friendly}: {e}"))
+                    changes = []
+                total += len(changes)
+                self._q.put(("log", f"  {friendly}: {len(changes)} chest slots randomized"))
+                self._q.put(("value", i))
+            spoiler = os.path.splitext(out)[0] + " - spoiler.txt"
+            run_capture(rnd.cmd_spoiler, out, spoiler, ns.ref)
+            self._q.put(("value", len(found) + 1))
+            self._q.put(("log", f"Done - {total} chest slots randomized into {os.path.basename(out)}."))
+            self._q.put(("log", f"Spoiler saved to {os.path.basename(spoiler)} "
+                                f"(open it only if you want to see the contents)."))
+        except Exception as e:
+            self._q.put(("log", f"[error] {e}"))
+        finally:
+            self._q.put(("done", None))            # always re-enables the buttons
+
+    def _poll_rand(self):
+        """Runs ON the UI thread; drains the worker's queue and updates widgets."""
+        try:
+            while True:
+                kind, val = self._q.get_nowait()
+                if kind == "label":
+                    self.prog_lbl.config(text=val)
+                elif kind == "value":
+                    self.progress.config(value=val)
+                elif kind == "log":
+                    self.log.write(val)
+                elif kind == "done":
+                    self.prog_lbl.config(text="Done")
+                    self._set_busy(False)
+                    return                           # stop polling
+        except queue.Empty:
+            pass
+        self.after(60, self._poll_rand)
 
     def do_spoiler(self):
         src = self._need_src()
@@ -420,8 +504,10 @@ RANDOMIZER
        Max artifacts per cycle - never place more than this many artifacts in a
                dungeon per cycle (default 4 = the player's carry limit); extra
                chests get a non-artifact item instead.
-  4. Preview (reads the source, writes nothing) to see the plan, or Randomize!
-     to create the Output ISO. A spoiler .txt is written next to the output.
+  4. Preview (reads the source, writes nothing) shows the planned contents.
+     Randomize! creates the Output ISO with a progress bar and, to avoid
+     spoilers, only reports how many slots changed - not the items. A spoiler
+     .txt is still written next to the output if you want to peek later.
   Export JSON / Patch from JSON let you hand-edit exact contents: Export a
      template from the source -> edit the .json -> Patch (writes the output ISO,
      never the source).
