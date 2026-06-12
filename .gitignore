@@ -1,0 +1,9 @@
+*.pyc
+*.pyo
+*.obj
+*.png
+*.chm
+*.tex
+*.chm
+memory/
+/memory
