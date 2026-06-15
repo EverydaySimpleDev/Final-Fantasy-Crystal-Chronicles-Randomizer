@@ -69,6 +69,9 @@ _add(0x163, ["Flower Seed", "Strange Seed", "Fruit Seed", "Fruit Seed", "Fruit S
     "Vegetable Seed", "Vegetable Seed", "Vegetable Seed", "Wheat Seed",
     "Worn Bandanna", "Shella Mark", "Kilanda Sulfur", "Cactus Flower"])
 NAMES[0x171] = "Ultimite"; NAMES[0x172] = "Dark Sphere"
+# Custom item repurposed from the unused Material slot 0x162 (Gold-clone model);
+# behaves as a sellable Material so chests/shops/randomizer can carry it.
+NAMES[0x162] = "AP Item"
 # Food 0x17d-0x18e
 _add(0x17d, ["Striped Apple","Cherry Cluster","Rainbow Grapes","Star Carrot","Gourd Potato","Round Corn",
     "Meat","Fish","Bannock","Spring Water","Milk","Strange Liquid"])

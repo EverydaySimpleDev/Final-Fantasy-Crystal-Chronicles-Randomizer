@@ -29,6 +29,9 @@ import gciso
 import items as itemtool
 import randomizer as rnd
 import chesteditor
+import shops
+import customitem
+import ffcc_items
 
 DUNGEONS = lootcft.DUNGEONS                      # [(script, friendly)]
 POOLS = ["all", "artifact", "magicite", "consumable", "recipe"]
@@ -95,6 +98,10 @@ class RandomizerTab(ttk.Frame):
         self.dungeon = tk.StringVar(value="All dungeons")
         self.fill = tk.BooleanVar(value=False)
         self.max_art = tk.StringVar(value="4")
+        self.include_drops = tk.BooleanVar(value=True)
+        self.rand_shops = tk.BooleanVar(value=False)
+        self.shop_vars = {base: tk.BooleanVar(value=True) for base in shops.SHOPS}
+        self.rand_prices = tk.BooleanVar(value=False)
 
         # Source ISO (read-only) -> Output ISO (created/written). Choosing a
         # source auto-suggests an output path so the original is never touched.
@@ -148,6 +155,26 @@ class RandomizerTab(ttk.Frame):
         ttk.Checkbutton(r5, text="Also fill empty/placeholder slots",
                         variable=self.fill).pack(side="left", padx=12)
 
+        r6 = ttk.Frame(opt); r6.pack(fill="x", pady=2)
+        ttk.Checkbutton(r6, text="Randomize enemy drops too (uncheck = chests only)",
+                        variable=self.include_drops).pack(side="left")
+
+        # --- shops (independent of chest randomization) ---
+        sh = ttk.LabelFrame(self, text="Shops", padding=8); sh.pack(fill="x", pady=4)
+        ttk.Checkbutton(sh, text="Randomize shop inventories (stock swapped within "
+                        "sellable items; prices stay valid)",
+                        variable=self.rand_shops, command=self._toggle_shops).pack(anchor="w")
+        self.shop_box = ttk.Frame(sh); self.shop_box.pack(fill="x", padx=18, pady=(2, 0))
+        ttk.Label(self.shop_box, text="Which shops:").pack(side="left")
+        self._shop_checks = []
+        for base, name in shops.SHOPS.items():
+            cb = ttk.Checkbutton(self.shop_box, text=name, variable=self.shop_vars[base])
+            cb.pack(side="left", padx=3); self._shop_checks.append(cb)
+        ttk.Checkbutton(sh, text="Randomize shop prices (shuffles item prices; "
+                        "works with or without item randomization)",
+                        variable=self.rand_prices).pack(anchor="w", pady=(4, 0))
+        self._toggle_shops()
+
         btns = ttk.Frame(self); btns.pack(fill="x", pady=4)
         self._buttons = []
         b = ttk.Button(btns, text="List dungeons", command=self.do_list); b.pack(side="left"); self._buttons.append(b)
@@ -167,6 +194,11 @@ class RandomizerTab(ttk.Frame):
         self.log = LogPanel(self); self.log.pack(fill="both", expand=True)
 
     # -- helpers --
+    def _toggle_shops(self):
+        state = "normal" if self.rand_shops.get() else "disabled"
+        for cb in self._shop_checks:
+            cb.config(state=state)
+
     def _browse_src(self):
         browse_iso(self.src)
 
@@ -217,6 +249,7 @@ class RandomizerTab(ttk.Frame):
         ns.rolls = self.rolls.get()
         ns.pool = self.pool.get()
         ns.fill_empty = self.fill.get()
+        ns.chests_only = not self.include_drops.get()
         try:
             ns.max_artifacts = max(0, int(self.max_art.get()))
         except ValueError:
@@ -224,6 +257,10 @@ class RandomizerTab(ttk.Frame):
         ns.ref = self.src.get().strip() or None          # source = vanilla reference
         d = self.dungeon.get()
         ns.dungeon = None if d == "All dungeons" else [s for s, n in DUNGEONS if n == d]
+        ns.rand_shops = self.rand_shops.get()
+        # selected shop bases (None = all) when shop randomization is on
+        ns.shops = [b for b, v in self.shop_vars.items() if v.get()] if ns.rand_shops else []
+        ns.rand_prices = self.rand_prices.get()
         return ns
 
     def _make_copy(self, src, out):
@@ -273,7 +310,8 @@ class RandomizerTab(ttk.Frame):
             found = [d for d in found if d[0] in want]
         if not found:
             self.log.write("[error] no matching dungeons"); return
-        self.progress.config(maximum=len(found) + 1, value=0)
+        extra = (1 if ns.rand_shops else 0) + (1 if ns.rand_prices else 0)
+        self.progress.config(maximum=len(found) + 1 + extra, value=0)
         self.log.write(f"Randomizing {os.path.basename(out)}  "
                        f"(seed {ns.seed}, mode {ns.mode}, rolls {ns.rolls}, "
                        f"max {ns.max_artifacts} artifacts/cycle)")
@@ -290,20 +328,54 @@ class RandomizerTab(ttk.Frame):
         rng = random.Random(ns.seed)
         total = 0
         try:
-            for i, (script, friendly, disc) in enumerate(found, 1):
+            for i, (script, friendly, discs) in enumerate(found, 1):
                 self._q.put(("label", f"Randomizing: {friendly}"))
+                only_by_disc = None
+                if getattr(ns, "chests_only", False):
+                    only_by_disc = {d: rnd.chest_set_indices(ns.ref, script, d) for d in discs}
+                    if not any(only_by_disc.values()):
+                        self._q.put(("log", f"  {friendly}: skipped (no Game8 chest data)"))
+                        self._q.put(("value", i)); continue
                 try:
-                    changes = rnd.randomize_dungeon(out, script, disc, rng, ns.mode, pool,
-                                                    ns.fill_empty, True, ns.rolls, ns.max_artifacts)
+                    changes = rnd.randomize_dungeon(out, script, discs, rng, ns.mode, pool,
+                                                    ns.fill_empty, True, ns.rolls,
+                                                    ns.max_artifacts, only_by_disc)
                 except Exception as e:
                     self._q.put(("log", f"  [error] {friendly}: {e}"))
                     changes = []
                 total += len(changes)
-                self._q.put(("log", f"  {friendly}: {len(changes)} chest slots randomized"))
+                self._q.put(("log", f"  {friendly}: {len(changes)} slots randomized "
+                                    f"across {len(discs)} area(s)"))
                 self._q.put(("value", i))
+            step = len(found)
+            if getattr(ns, "rand_shops", False):
+                self._q.put(("label", "Randomizing shops"))
+                only = set(ns.shops) if ns.shops else None
+                try:
+                    res = rnd.randomize_shops(out, random.Random(ns.seed), only=only, apply=True)
+                    nshop = sum(res.values())
+                    detail = ", ".join(f"{k} {v}" for k, v in res.items()) or "none selected"
+                    self._q.put(("log", f"  shops: {nshop} slots across {len(res)} shop(s) "
+                                        f"({detail})"))
+                except Exception as e:
+                    self._q.put(("log", f"  [error] shops: {e}"))
+                step += 1
+                self._q.put(("value", step))
+            if getattr(ns, "rand_prices", False):
+                self._q.put(("label", "Randomizing shop prices"))
+                try:
+                    # pool from the vanilla source so prices shuffle among real
+                    # shop items regardless of whether stock was randomized first
+                    vpool = rnd.shop_pool(ns.ref) if ns.ref else None
+                    n = rnd.randomize_prices(out, random.Random(ns.seed), apply=True, pool=vpool)
+                    self._q.put(("log", f"  prices: {n} item price(s) shuffled"))
+                except Exception as e:
+                    self._q.put(("log", f"  [error] prices: {e}"))
+                step += 1
+                self._q.put(("value", step))
             spoiler = os.path.splitext(out)[0] + " - spoiler.txt"
-            run_capture(rnd.cmd_spoiler, out, spoiler, ns.ref)
-            self._q.put(("value", len(found) + 1))
+            run_capture(rnd.cmd_spoiler, out, spoiler, ns.ref, rnd._options_header(ns))
+            self._q.put(("value", step + 1))
             self._q.put(("log", f"Done - {total} chest slots randomized into {os.path.basename(out)}."))
             self._q.put(("log", f"Spoiler saved to {os.path.basename(spoiler)} "
                                 f"(open it only if you want to see the contents)."))
@@ -504,10 +576,23 @@ RANDOMIZER
        Max artifacts per cycle - never place more than this many artifacts in a
                dungeon per cycle (default 4 = the player's carry limit); extra
                chests get a non-artifact item instead.
+       Randomize enemy drops too - chests and enemy drops share the same item
+               pool. Checked (default) randomizes both; uncheck to randomize
+               only the Game8-identified chests and leave enemy drops alone
+               (dungeons without Game8 data are skipped in that mode).
+       Shops - tick "Randomize shop inventories" to also shuffle what the towns
+               sell (Tipa, Alfitaria, Fields of Fum, Selkie Peddler, Shella,
+               Leuda, Smith). Choose all shops or just specific ones. Stock is
+               swapped only among items shops already sell, so prices stay valid.
+               "Randomize shop prices" shuffles the price tags among those items
+               (Bronze might cost what Mythril did); works with or without item
+               randomization.
   4. Preview (reads the source, writes nothing) shows the planned contents.
      Randomize! creates the Output ISO with a progress bar and, to avoid
      spoilers, only reports how many slots changed - not the items. A spoiler
-     .txt is still written next to the output if you want to peek later.
+     .txt is still written next to the output if you want to peek later; it
+     starts with the exact options you chose, then lists every chest and each
+     shop's stock.
   Export JSON / Patch from JSON let you hand-edit exact contents: Export a
      template from the source -> edit the .json -> Patch (writes the output ISO,
      never the source).
@@ -521,9 +606,183 @@ FILE TOOLS
   size). Item stats edits a param.cfd: extract dvd/cft/param.cfd here, edit a
   field, then inject it back.
 
+CUSTOM ITEM
+  Repurpose an unused "Extra N" slot into your own item (edits a COPY in place).
+  - "List free slots" shows repurposable slots; pick one as the Slot id.
+  - Name: keep it short (~8 chars fit an Extra slot - names are written in place
+    so the file stays the same size).
+  - Looks like: a donor item whose 3D model / menu icon / type are copied (e.g.
+    Gold). Price sets the gil. Optionally place it in a shop and/or a dungeon's
+    first chest for testing. To have the randomizer/editor carry it, follow the
+    printed note (add it to ffcc_items NAMES, drop it from randomizer EXCLUDE).
+
 Only DROPPABLE items go in chests (artifacts, magicite, phoenix down, materials,
 food, recipes). Equipment can't drop from a chest, so it is never offered.
 """
+
+
+class CustomItemTab(ttk.Frame):
+    """Repurpose an unused 'Extra N' item slot into a custom item (customitem.py)."""
+
+    def __init__(self, nb):
+        super().__init__(nb, padding=8)
+        self.iso = tk.StringVar()
+        self.slot = tk.StringVar(value="0x162")
+        self.name = tk.StringVar(value="AP Item")
+        self.desc = tk.StringVar(value="An Archipelago Item")
+        self.donor = tk.StringVar(value="Gold")
+        self.model = tk.StringVar(value="")
+        self.retex = tk.StringVar(value="")
+        self.gil = tk.StringVar(value="10")
+        self.article = tk.StringVar(value="the")
+        self.shop = tk.StringVar(value="(none)")
+        self.chest = tk.StringVar(value="(none)")
+        self._shop_map = {"(none)": None}
+        self._shop_map.update({name: base for base, name in shops.SHOPS.items()})
+        self._chest_map = {"(none)": None}
+        self._chest_map.update({n: s for s, n in DUNGEONS})
+
+        f = ttk.Frame(self); f.pack(fill="x", pady=2)
+        ttk.Label(f, text="ISO:", width=6).pack(side="left")
+        ttk.Entry(f, textvariable=self.iso).pack(side="left", fill="x", expand=True, padx=4)
+        ttk.Button(f, text="Browse…", command=lambda: browse_iso(self.iso)).pack(side="left")
+        ttk.Label(self, foreground="#a33",
+                  text="Edits the ISO in place — point it at a COPY (e.g. your randomized "
+                       "output), never your clean original.").pack(anchor="w")
+
+        ni = ttk.LabelFrame(self, text="New item (repurposes an unused 'Extra' slot)", padding=8)
+        ni.pack(fill="x", pady=6)
+        r = ttk.Frame(ni); r.pack(fill="x", pady=2)
+        ttk.Label(r, text="Slot id:", width=12).pack(side="left")
+        ttk.Entry(r, textvariable=self.slot, width=10).pack(side="left", padx=4)
+        ttk.Button(r, text="List free slots", command=self.do_listfree).pack(side="left", padx=2)
+        ttk.Button(r, text="Show slot", command=self.do_show).pack(side="left", padx=2)
+        r = ttk.Frame(ni); r.pack(fill="x", pady=2)
+        ttk.Label(r, text="Name:", width=12).pack(side="left")
+        ttk.Entry(r, textvariable=self.name, width=20).pack(side="left", padx=4)
+        ttk.Label(r, text="(short — about 8 chars fit an 'Extra' slot)",
+                  foreground="#777").pack(side="left")
+        r = ttk.Frame(ni); r.pack(fill="x", pady=2)
+        ttk.Label(r, text="Description:", width=12).pack(side="left")
+        ttk.Entry(r, textvariable=self.desc, width=36).pack(side="left", padx=4)
+        ttk.Label(r, text="(in-game help text; blank = leave as-is)",
+                  foreground="#777").pack(side="left")
+        r = ttk.Frame(ni); r.pack(fill="x", pady=2)
+        ttk.Label(r, text="Looks like:", width=12).pack(side="left")
+        ttk.Combobox(r, textvariable=self.donor, width=18,
+                     values=self._donor_list()).pack(side="left", padx=4)
+        ttk.Label(r, text="(donor item — copies its model / icon / type)",
+                  foreground="#777").pack(side="left")
+        r = ttk.Frame(ni); r.pack(fill="x", pady=2)
+        ttk.Label(r, text="Model id:", width=12).pack(side="left")
+        ttk.Entry(r, textvariable=self.model, width=10).pack(side="left", padx=4)
+        ttk.Label(r, text="(optional — override the 3D model, e.g. 0x37; blank = donor's)",
+                  foreground="#777").pack(side="left")
+        r = ttk.Frame(ni); r.pack(fill="x", pady=2)
+        ttk.Label(r, text="Retexture:", width=12).pack(side="left")
+        ttk.Entry(r, textvariable=self.retex, width=30).pack(side="left", padx=4)
+        ttk.Button(r, text="Browse…",
+                   command=lambda: self._browse_png(self.retex)).pack(side="left", padx=2)
+        ttk.Label(self, foreground="#777",
+                  text="Retexture recolors the model's texture from a PNG. Note: every "
+                       "item using that model is recolored — set a unique Model id first "
+                       "to affect only this item.").pack(anchor="w")
+        r = ttk.Frame(ni); r.pack(fill="x", pady=2)
+        ttk.Label(r, text="Price (gil):", width=12).pack(side="left")
+        ttk.Entry(r, textvariable=self.gil, width=10).pack(side="left", padx=4)
+        ttk.Label(r, text="Article:").pack(side="left", padx=(10, 0))
+        ttk.Combobox(r, textvariable=self.article, width=5, state="readonly",
+                     values=["a", "an", "the"]).pack(side="left", padx=4)
+
+        pl = ttk.LabelFrame(self, text="Place for testing (optional)", padding=8)
+        pl.pack(fill="x", pady=4)
+        r = ttk.Frame(pl); r.pack(fill="x", pady=2)
+        ttk.Label(r, text="In shop:", width=12).pack(side="left")
+        ttk.Combobox(r, textvariable=self.shop, width=18, state="readonly",
+                     values=list(self._shop_map)).pack(side="left", padx=4)
+        ttk.Label(r, text="In dungeon's 1st chest:").pack(side="left", padx=(10, 0))
+        ttk.Combobox(r, textvariable=self.chest, width=20, state="readonly",
+                     values=list(self._chest_map)).pack(side="left", padx=4)
+
+        ttk.Button(self, text="Add custom item", command=self.do_add).pack(anchor="w", pady=4)
+        self.log = LogPanel(self); self.log.pack(fill="both", expand=True)
+
+    def _donor_list(self):
+        return sorted({n for n in ffcc_items.NAMES.values()
+                       if not n.startswith(("Equip", "Extra")) and "Test" not in n})
+
+    def _iso(self):
+        p = self.iso.get().strip()
+        if not p or not os.path.isfile(p):
+            messagebox.showwarning("No ISO", "Pick a valid ISO (a copy)."); return None
+        return p
+
+    def _slot(self):
+        try:
+            return int(self.slot.get(), 0)
+        except ValueError:
+            messagebox.showwarning("Bad slot", "Slot id must look like 0x162."); return None
+
+    def _browse_png(self, var):
+        p = filedialog.askopenfilename(title="Choose a texture PNG",
+                                       filetypes=[("PNG image", "*.png"), ("All files", "*.*")])
+        if p:
+            var.set(p)
+
+    def do_listfree(self):
+        iso = self._iso()
+        if iso:
+            self.log.write(run_capture(customitem.cmd_list_free, iso))
+
+    def do_show(self):
+        iso = self._iso(); sid = self._slot()
+        if iso and sid is not None:
+            self.log.write(run_capture(customitem.cmd_show, iso, sid))
+
+    def do_add(self):
+        iso = self._iso(); sid = self._slot()
+        if not iso or sid is None:
+            return
+        name = self.name.get().strip()
+        if not name:
+            messagebox.showwarning("No name", "Enter an item name."); return
+        try:
+            gil = int(self.gil.get()) if self.gil.get().strip() else None
+        except ValueError:
+            messagebox.showwarning("Bad price", "Price must be a number."); return
+        shop = self._shop_map.get(self.shop.get())
+        chest = self._chest_map.get(self.chest.get())
+        if not messagebox.askyesno("Add item",
+                f"Write '{name}' into slot 0x{sid:x} of {os.path.basename(iso)}?\n"
+                "This edits the ISO in place — make sure it's a copy."):
+            return
+        donor, article = self.donor.get().strip(), self.article.get()
+        desc = self.desc.get().strip()
+        model = None
+        if self.model.get().strip():
+            try:
+                model = int(self.model.get().strip(), 0)
+            except ValueError:
+                messagebox.showwarning("Bad model", "Model id must look like 0x37 or 55."); return
+        retex = self.retex.get().strip() or None
+        if retex and not os.path.isfile(retex):
+            messagebox.showwarning("No PNG", "Retexture file not found."); return
+
+        def work():
+            info = customitem.add_custom_item(iso, sid, name, donor, gil, article,
+                                              shop, chest, desc, model, retex)
+            print(f"Added 0x{sid:03x} '{info['name']}' (was '{info['old_name']}') — "
+                  f"model 0x{info['model']:04x} from {info['donor']}, "
+                  f"gil={info['gil'] if info['gil'] is not None else 'donor'}")
+            if info.get("desc"):
+                print(f"  description: {info['desc']!r}")
+            if info.get("retex"):
+                print("  retexture:", info["retex"])
+            for p in info["placed"]:
+                print("  placed in", p)
+            print(f"Tooling: add  NAMES[0x{sid:03x}] = \"{info['name']}\"  to ffcc_items.py and "
+                  f"remove 0x{sid:03x} from randomizer.EXCLUDE for randomizer/editor support.")
+        self.log.write(run_capture(work))
 
 
 def main():
@@ -540,6 +799,8 @@ def main():
     chesteditor.App(ce)
 
     nb.add(FileToolsTab(nb), text="File Tools")
+
+    nb.add(CustomItemTab(nb), text="Custom Item")
 
     helptab = ttk.Frame(nb, padding=8)
     nb.add(helptab, text="Help")

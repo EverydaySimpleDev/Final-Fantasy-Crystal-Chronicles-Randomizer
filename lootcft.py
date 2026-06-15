@@ -11,22 +11,26 @@ STRIDE = 0x5b
 IDXOFF = 0x42
 SETLEN = 7
 
-# script basename -> friendly dungeon name (best-effort; '?' = unconfirmed)
+# script basename -> friendly dungeon name. Identities confirmed by matching each
+# cft's chest contents to the GameCube level maps (Levels/*.jpg). NOTE: each
+# dungeon spans several area files dvd/cft/<script>_0.cft, _1, _2 ... - the
+# randomizer processes them all. (`ruin` is Tida, not Rebena; `city` is the real
+# Rebena Te Ra; `gigas`=Moschet (Gigas Lord); `fort`=Daemon's Court.)
 DUNGEONS = [
     ("river",  "River Belle Path"),
     ("gob",    "Goblin Wall"),
     ("mine",   "The Mine of Cathuriges"),
     ("kinoko", "The Mushroom Forest"),
+    ("ruin",   "Tida"),
+    ("gigas",  "Moschet Manor"),
+    ("lava",   "Mount Kilanda"),
+    ("fort",   "Daemon's Court"),
     ("cave",   "Selepation Cave"),
     ("water",  "Veo Lu Sluice"),
+    ("desert", "Lynari Desert"),
     ("swamp",  "Conall Curach"),
-    ("desert", "Lynari Desert (no Game8 data)"),
-    ("lava",   "Mount Kilanda (no Game8 data)"),
-    ("ruin",   "Rebena Te Ra"),
+    ("city",   "Rebena Te Ra"),
     ("meteo",  "Mount Vellenge"),
-    ("miya",   "Moschet Manor (?)"),
-    ("stream", "Jegon River (?)"),
-    ("last",   "Final / Mag Mell (?)"),
 ]
 
 

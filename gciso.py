@@ -4,7 +4,8 @@ gciso.py - List, extract, and re-inject files in a GameCube disc image (.iso/.gc
 Usage:
     python gciso.py list    <iso> [substring]          # list files (optionally filtered)
     python gciso.py extract <iso> <disc_path> [out]    # pull one file out of the disc
-    python gciso.py inject  <iso> <disc_path> <file>   # write a file back IN PLACE
+    python gciso.py inject  <iso> <disc_path> <file>   # write a file back IN PLACE (same size)
+    python gciso.py rebuild <iso> <disc_path> <file> [out_iso]  # replace at ANY size
     python gciso.py extractall <iso> <out_dir> [substring]
 
 Re-injection is IN-PLACE: the replacement file must be EXACTLY the same size as
@@ -154,6 +155,90 @@ def cmd_inject(iso, disc_path, src):
     print(f"Injected {src} -> {path} ({size} bytes) at 0x{off:x} in {os.path.basename(iso)}")
 
 
+def _fst_entries(data):
+    """Like parse_fst but on an in-memory disc image; also returns each file's
+    FST entry index (so we can rewrite its offset/size). Returns
+    (fst_off, fst_sz, n_entries, [(path, off, size, entry_idx), ...])."""
+    fst_off = struct.unpack(">I", data[0x424:0x428])[0]
+    fst_sz = struct.unpack(">I", data[0x428:0x42C])[0]
+    fst = data[fst_off:fst_off + fst_sz]
+    n = struct.unpack(">I", fst[8:12])[0]
+    str_base = n * 12
+
+    def nm(noff):
+        end = fst.index(b"\x00", str_base + noff)
+        return fst[str_base + noff:end].decode("ascii", "replace")
+
+    files, cur_end, path_stack, idx = [], [n], [""], 1
+    while idx < n:
+        e = fst[idx * 12:idx * 12 + 12]
+        flag = e[0]
+        noff = struct.unpack(">I", b"\x00" + e[1:4])[0]
+        off = struct.unpack(">I", e[4:8])[0]
+        size = struct.unpack(">I", e[8:12])[0]
+        name = nm(noff)
+        while len(cur_end) > 1 and idx >= cur_end[-1]:
+            cur_end.pop(); path_stack.pop()
+        if flag == 1:
+            cur_end.append(size); path_stack.append(path_stack[-1] + name + "/")
+        else:
+            files.append((path_stack[-1] + name, off, size, idx))
+        idx += 1
+    return fst_off, fst_sz, n, files
+
+
+def rebuild_iso(iso_in, edits, iso_out, align=0x20):
+    """Write iso_out = iso_in with each edited file RESIZED. `edits` maps a disc
+    path -> replacement bytes (any size). Strategy: APPEND each edited file at the
+    end of the image and repoint its FST entry; every other file stays byte-for-
+    byte at its original offset (no ripple). Lets files grow or shrink. The old
+    data of edited files is left as harmless dead space.
+
+    Returns [(path, new_offset, new_size), ...]. Note: the image grows, so the
+    result may exceed the 1.46 GB disc size - fine for emulators (Dolphin)."""
+    with open(iso_in, "rb") as f:
+        data = bytearray(f.read())
+    fst_off, fst_sz, n, files = _fst_entries(data)
+    by_norm = {norm(p): (p, idx) for (p, _, _, idx) in files}
+
+    def resolve(path):
+        k = norm(path)
+        if k in by_norm:
+            return by_norm[k]
+        cand = [v for kk, v in by_norm.items() if kk.endswith("/" + k)]
+        if len(cand) != 1:
+            raise ValueError(f"rebuild: {path!r} not found uniquely in disc")
+        return cand[0]
+
+    changes = []
+    for path, content in edits.items():
+        real_path, idx = resolve(path)
+        content = bytes(content)
+        new_off = (len(data) + align - 1) // align * align
+        if new_off > len(data):
+            data.extend(b"\x00" * (new_off - len(data)))
+        data.extend(content)
+        struct.pack_into(">I", data, fst_off + idx * 12 + 4, new_off)   # offset
+        struct.pack_into(">I", data, fst_off + idx * 12 + 8, len(content))  # size
+        changes.append((real_path, new_off, len(content)))
+    with open(iso_out, "wb") as f:
+        f.write(data)
+    return changes
+
+
+def cmd_rebuild(iso, disc_path, src, out=None):
+    with open(src, "rb") as s:
+        data = s.read()
+    if out is None:
+        base, ext = os.path.splitext(iso)
+        out = base + " - rebuilt" + (ext or ".iso")
+    changes = rebuild_iso(iso, {disc_path: data}, out)
+    for path, off, size in changes:
+        print(f"Rebuilt: {path} -> {size} bytes at 0x{off:x} (appended)")
+    print(f"Wrote {out}  ({os.path.getsize(out)} bytes). Other files unchanged. "
+          f"Test in an emulator (image may exceed 1.46 GB).")
+
+
 def cmd_extractall(iso, out_dir, substring=None):
     with open(iso, "rb") as f:
         game_id, files = parse_fst(f)
@@ -195,6 +280,10 @@ if __name__ == "__main__":
         if len(sys.argv) < 4:
             usage(); sys.exit(1)
         cmd_extractall(iso, sys.argv[3], sys.argv[4] if len(sys.argv) > 4 else None)
+    elif cmd == "rebuild":
+        if len(sys.argv) < 5:
+            usage(); sys.exit(1)
+        cmd_rebuild(iso, sys.argv[3], sys.argv[4], sys.argv[5] if len(sys.argv) > 5 else None)
     else:
         usage()
         sys.exit(1)

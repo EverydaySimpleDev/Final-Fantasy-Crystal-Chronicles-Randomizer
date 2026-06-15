@@ -94,14 +94,46 @@ CHESTS = {
         1: ["Aegis", "Masamune", "Ribbon"], 2: ["Flametongue", "Ice Brand", "Mjollnir", "Sasuke's Blade"],
         3: ["Dark Matter", "Kris", "Mage's Staff", "Sage's Staff"], 5: ["Elven Mantle", "Wonder Bangle"],
     },
+    # Source: GameWith (gamewith.net/ffcc-remastered) per-dungeon walkthroughs.
+    "Lynari Desert": {
+        1: ["Valiant Weapon", "Mighty Weapon", "Victorious Weapon", "Master's Weapon", "Legendary Weapon"],
+        2: ["Mythril Armor", "Eternal Armor", "Pure Armor", "Holy Armor", "Diamond Armor"],
+        3: ["Flame Craft", "Frost Craft", "Lightning Craft"],
+        4: ["Clockwork", "New Clockwork", "Gold Craft", "Goggle Techniques"],
+        6: ["Gobbie Pocket", "Star Pendant"],
+        9: ["Goggle Techniques", "Designer Goggles"],
+        11: ["Drill", "Helm of Arai", "Wonder Bangle", "Teddy Bear"],
+        12: ["Double Axe", "Ashura", "Loaded Dice", "Fang Charm", "Ice Brand", "Ogrekiller", "Masquerade", "Giant's Glove"],
+        13: ["Dragon's Whisker", "Book of Light", "Wonder Wand", "Silver Bracer", "Mage's Staff", "Tome of Ultima", "Dark Matter", "Gold Hairpin"],
+    },
+    # Tida: from GameCube per-cycle chest map (Levels/4 Tida.jpg).
+    "Tida": {
+        1: ["Iron Shield", "Mythril Shield", "Iron Gloves", "Mythril Gloves", "Frost Shield", "Frost Gloves", "Magic Shield", "Gold Gloves"],
+        2: ["Faerie Kit", "Angel Kit"],
+        3: ["Dragon's Whisker", "Mage Masher", "Silver Bracer", "Cat's Bell", "Sage's Staff", "Rune Bell", "Mage's Staff", "Kris"],
+        4: ["Iron Sallet", "Mythril Sallet", "Iron Belt", "Mythril Belt", "Frost Sallet", "Frost Belt", "Eternal Sallet", "Wind Belt"],
+        5: ["Moogle Pocket", "Chocobo Pocket"],
+        6: ["Maneater", "Ashura", "Kaiser Knuckles", "Ice Brand", "Ogrekiller", "Engetsurin", "Mjollnir", "Fang Charm"],
+        7: ["Sparkling Bracer", "Helm of Arai", "Elven Mantle", "Wonder Bangle", "Rune Staff"],
+        8: ["Iron Armor", "Mythril Armor", "Time Armor", "Pure Armor", "Holy Armor"],
+        9: ["Warrior's Weapon", "Master's Weapon", "Valiant Weapon", "Mighty Weapon", "Victorious Weapon"],
+    },
+    # Mount Kilanda: from GameCube per-cycle chest map (Levels/9 Kilanda.jpg).
+    "Mount Kilanda": {
+        1: ["Warrior's Weapon", "Master's Weapon", "Victorious Weapon", "Valiant Weapon", "Mighty Weapon"],
+        2: ["Flame Craft", "Flame Armor", "Zeal Kit", "Healing Kit"],
+        3: ["Flame Shield", "Flame Gloves", "Flame Sallet", "Flame Belt"],
+        4: ["Iron", "Mythril", "Alloy", "Diamond Ore"],
+    },
 }
 
 # script basename -> Game8 dungeon name (filled where confirmed; matcher can also auto-detect)
 SCRIPT_TO_DUNGEON = {
     "river": "River Belle Path", "gob": "Goblin Wall", "mine": "The Mine of Cathuriges",
     "kinoko": "The Mushroom Forest", "cave": "Selepation Cave", "water": "Veo Lu Sluice",
-    "swamp": "Conall Curach", "ruin": "Rebena Te Ra", "meteo": "Mount Vellenge",
-    "miya": "Moschet Manor",
+    "swamp": "Conall Curach", "meteo": "Mount Vellenge", "desert": "Lynari Desert",
+    "lava": "Mount Kilanda", "ruin": "Tida", "gigas": "Moschet Manor",
+    "fort": "Daemon's Court", "city": "Rebena Te Ra",
 }
 
 # Spell/typo aliases -> canonical name used by ffcc_items
@@ -190,22 +222,26 @@ def label_sets(parsed_sets, dungeon):
     cs = chest_id_sets(dungeon)
     labels = {}
     used_specific = set()
-    # pass 1: specific multi-item chests (strong matches)
-    for i, s in enumerate(parsed_sets):
-        ids = set(it for it in s if 1 <= it <= 0x4b4)
-        spec = _specific(ids)
-        bestcn, bestov = None, 1
-        for cn, want in cs.items():
-            w = _specific(want)
-            if len(w) < 2:
+    # pass 1: each distinctive multi-item chest claims the set with the most of
+    # its specific items (>=2). Chest-centric, so each chest number is used at
+    # most once (no two sets get the same number).
+    for cn, want in cs.items():
+        w = _specific(want)
+        if len(w) < 2:
+            continue
+        best_i, best_ov = None, 1
+        for i, s in enumerate(parsed_sets):
+            if i in labels:
                 continue
+            spec = _specific(set(it for it in s if 1 <= it <= 0x4b4))
             ov = len(w & spec)
-            if ov >= 2 and ov > bestov:
-                bestcn, bestov = cn, ov
-        if bestcn is not None:
-            labels[i] = bestcn
-            used_specific.add(bestcn)
-    # pass 2: generic single-item chests (e.g. Cure/Raise) for still-unlabeled sets
+            if ov >= 2 and ov > best_ov:
+                best_i, best_ov = i, ov
+        if best_i is not None:
+            labels[best_i] = cn
+            used_specific.add(cn)
+    # pass 2: generic single-item chests (e.g. Cure/Raise) for still-unlabeled
+    # sets. Mark the number used so it is assigned to only one set.
     for i, s in enumerate(parsed_sets):
         if i in labels:
             continue
@@ -215,5 +251,36 @@ def label_sets(parsed_sets, dungeon):
                 continue
             if want and want <= ids:   # contains all of this chest's items
                 labels[i] = cn
+                used_specific.add(cn)
                 break
+    # pass 3: weaker single-item match for chests STILL unmatched (e.g. small
+    # scroll chests like Faerie Kit/Angel Kit whose two items split across sets).
+    # Each remaining chest claims the unlabeled set holding the most of its
+    # distinctive items; items UNIQUE to one chest count double so a chest grabs
+    # the set that really implies it (and we avoid generic magicite via _specific).
+    import collections
+    item_chests = collections.defaultdict(set)
+    for cn, want in cs.items():
+        for v in _specific(want):
+            item_chests[v].add(cn)
+    remaining = [i for i in range(len(parsed_sets)) if i not in labels]
+    for cn, want in cs.items():
+        if cn in used_specific:
+            continue
+        w = _specific(want)
+        if not w:
+            continue
+        best_i, best_score = None, 0
+        for i in remaining:
+            ids = set(it for it in parsed_sets[i] if 1 <= it <= 0x4b4)
+            hit = w & ids
+            score = sum(2 if item_chests[v] == {cn} else 1 for v in hit)
+            if score > best_score:
+                best_i, best_score = i, score
+        # require score >= 2: either two of the chest's items, or one item that
+        # is UNIQUE to this chest - avoids grabbing a drop set on a single shared item
+        if best_i is not None and best_score >= 2:
+            labels[best_i] = cn
+            used_specific.add(cn)
+            remaining.remove(best_i)
     return labels

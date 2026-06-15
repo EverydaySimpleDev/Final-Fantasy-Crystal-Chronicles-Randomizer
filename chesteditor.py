@@ -7,8 +7,11 @@ Run:  python chesteditor.py
   2. Pick a dungeon and click Load.
   3. The table shows one row per CHEST. The three columns are what that chest
      gives in Cycle 1, Cycle 2, and Cycle 3 (the dungeon's 1st/2nd/3rd visit).
-     Numbered "Chest N" rows are matched to Game8's chest list; "Extra N" rows
-     are the dungeon's other loot tables.
+     "Chest N" rows (green) match Game8's chest list (each chest numbered once
+     per dungeon). Other sets are classified like the GameCube set-list sheet:
+     "Monster N" (red, enemy drop), "Magicite N" (purple, stone/element spawn),
+     "Gathering N" (tan, food/seeds). Dungeons span several AREA files; Save
+     writes every edited area.
   4. Double-click a cycle cell to change what that chest gives that cycle. The
      picker lists every DROPPABLE item (artifact / magicite / phoenix down /
      material / food / recipe). Equipment is intentionally excluded - a chest
@@ -52,13 +55,12 @@ class App:
             self.root.title("FFCC Chest Editor")
             self.root.geometry("760x560")
         self.iso = None
-        self.cft_path = None
-        self.disc_path = None
         self.dungeon = None
-        self.sets = []            # list of sets; each set = list of [offset, id]
-        self.rows = []            # ordered [(set_index, title, kind)]
-        self.title_of = {}        # set_index -> title
-        self.dirty = {}           # file_offset -> new_id
+        self.areas = []           # [{"area","disc","cft","sets"}] - one per area file
+        self.chest_of = {}        # (area_idx, set_idx) -> Game8 chest number (dungeon-wide)
+        self.rows = []            # ordered [(area_idx, set_idx, title, kind)]
+        self.title_of = {}        # (area_idx, set_idx) -> title
+        self.dirty = {}           # area_idx -> {file_offset: new_id}
 
         # --- top bar: ISO ---
         top = ttk.Frame(master, padding=(8, 8, 8, 2))
@@ -81,8 +83,9 @@ class App:
 
         # --- help line ---
         ttk.Label(master, padding=(8, 2), foreground="#444",
-                  text="Each row is a chest; columns are what it gives in cycle 1 / 2 / 3. "
-                       "Double-click a cell to change it.").pack(fill="x")
+                  text="Each row is a loot set; columns are what it gives in cycle 1 / 2 / 3. "
+                       "Green = Chest, red = Monster (enemy drop), purple = Magicite, "
+                       "tan = Gathering. Double-click a cell to change it.").pack(fill="x")
 
         # --- table ---
         wrap = ttk.Frame(master, padding=(8, 4))
@@ -90,7 +93,7 @@ class App:
         cols = ("chest", "c1", "c2", "c3")
         self.tree = ttk.Treeview(wrap, columns=cols, show="headings", height=18)
         self.tree.heading("chest", text="Chest")
-        self.tree.column("chest", width=90, anchor="w")
+        self.tree.column("chest", width=140, anchor="w")
         for c, label in (("c1", "Cycle 1 (early)"), ("c2", "Cycle 2"), ("c3", "Cycle 3 (late)")):
             self.tree.heading(c, text=label)
             self.tree.column(c, width=200, anchor="w")
@@ -98,8 +101,11 @@ class App:
         self.tree.configure(yscrollcommand=vsb.set)
         self.tree.pack(side="left", fill="both", expand=True)
         vsb.pack(side="left", fill="y")
-        self.tree.tag_configure("chest", background="#eaf4ea")
-        self.tree.tag_configure("extra", background="#f4f4f4")
+        self.tree.tag_configure("chest", background="#eaf4ea")      # green
+        self.tree.tag_configure("monster", background="#fdecec")    # red
+        self.tree.tag_configure("magicite", background="#f1eaf8")   # purple
+        self.tree.tag_configure("gathering", background="#fbf3e0")  # tan
+        self.tree.tag_configure("extra", background="#f4f4f4")      # (fallback)
         self.tree.bind("<Double-1>", self.on_double)
 
         self.status = ttk.Label(master, text="Open an ISO to begin.", relief="sunken", anchor="w")
@@ -127,53 +133,68 @@ class App:
         if sel < 0:
             messagebox.showwarning("No dungeon", "Choose a dungeon."); return
         script = lootcft.DUNGEONS[sel][0]
-        self.disc_path = f"dvd/cft/{script}_0.cft"
-        tmp = os.path.join(tempfile.gettempdir(), f"{script}_0.cft")
         try:
             with open(self.iso, "rb") as f:
                 _, files = gciso.parse_fst(f)
-                m = gciso.find_file(files, self.disc_path)
-                if not m:
-                    messagebox.showerror("Not found", f"{self.disc_path} not in ISO"); return
-                _, off, size = m[0]
-                f.seek(off); data = f.read(size)
-            with open(tmp, "wb") as o:
-                o.write(data)
-            self.cft_path = tmp
-            self.sets = [[[o, it] for o, it in s]
-                         for s in lootcft.find_sets(tmp, valid=_valid)]
+                discs = rnd._area_discs(files, script)   # all area files _0, _1, ...
+                if not discs:
+                    messagebox.showerror("Not found", f"No {script}_*.cft in ISO"); return
             self.dungeon = g8.SCRIPT_TO_DUNGEON.get(script)
-            if not self.dungeon:
-                dn, sc = g8.match_dungeon([[it for _, it in s] for s in self.sets])
-                self.dungeon = dn if sc >= 3 else None
-            labels = g8.label_sets([[it for _, it in s] for s in self.sets],
-                                   self.dungeon) if self.dungeon else {}
-            self._build_rows(labels)
+            self.areas = []
+            for disc in discs:
+                with open(self.iso, "rb") as f:
+                    _, files = gciso.parse_fst(f)
+                    _, off, size = gciso.find_file(files, disc)[0]
+                    f.seek(off); data = f.read(size)
+                cft = os.path.join(tempfile.gettempdir(), os.path.basename(disc))
+                with open(cft, "wb") as o:
+                    o.write(data)
+                sets = [[[o, it] for o, it in s] for s in lootcft.find_sets(cft, valid=_valid)]
+                self.areas.append({"area": rnd._area_no(disc), "disc": disc,
+                                   "cft": cft, "sets": sets})
+            # Label chests across the WHOLE dungeon at once so each Game8 chest
+            # number is assigned to a single best-matching set (no per-area dups).
+            flat = [(ai, si) for ai, a in enumerate(self.areas)
+                    for si in range(len(a["sets"]))]
+            combined = [[it for _, it in self.areas[ai]["sets"][si]] for ai, si in flat]
+            labels = g8.label_sets(combined, self.dungeon) if self.dungeon else {}
+            self.chest_of = {flat[fi]: cn for fi, cn in labels.items()}
+            self._build_rows()
             self.dirty.clear()
             self.save_btn.config(state="disabled")
             self.refresh()
-            n_chest = sum(1 for _, _, k in self.rows if k == "chest")
+            n_chest = sum(1 for _, _, _, k in self.rows if k == "chest")
+            n_sets = sum(len(a["sets"]) for a in self.areas)
             dn = self.dungeon or "unknown dungeon"
-            self.status.config(text=f"{dn}: {len(self.sets)} chests "
-                                    f"({n_chest} matched to Game8 numbers).")
+            self.status.config(text=f"{dn}: {n_sets} sets across {len(self.areas)} area(s) "
+                                    f"({n_chest} matched to Game8 chest numbers).")
         except Exception as e:
             messagebox.showerror("Load error", str(e))
 
-    def _build_rows(self, labels):
-        """Order rows: numbered chests first (by number), then 'Extra N'."""
-        seen, chest_rows, extra = set(), [], []
-        for si in range(len(self.sets)):
-            cn = labels.get(si)
-            if cn is not None and cn not in seen:
-                seen.add(cn); chest_rows.append((cn, si))
-            else:
-                extra.append(si)
-        chest_rows.sort()
+    def _build_rows(self):
+        """Build the row list across the whole dungeon. Each Game8 chest appears
+        once as 'Chest N' (numbered once per dungeon). Every other set is then
+        classified (validated against the GameCube set-list sheet) and labelled
+        'Monster N' (enemy drop), 'Magicite N' (element/stone spawn) or
+        'Gathering N' (food / seeds), each numbered sequentially across areas."""
         self.rows, self.title_of = [], {}
-        for cn, si in chest_rows:
-            self.rows.append((si, f"Chest {cn}", "chest")); self.title_of[si] = f"Chest {cn}"
-        for k, si in enumerate(extra, 1):
-            self.rows.append((si, f"Extra {k}", "extra")); self.title_of[si] = f"Extra {k}"
+        # numbered chests first, ordered by Game8 chest number
+        for cn, (ai, si) in sorted((cn, k) for k, cn in self.chest_of.items()):
+            t = f"Chest {cn}"
+            self.rows.append((ai, si, t, "chest")); self.title_of[(ai, si)] = t
+        # everything else, grouped by kind (Monster / Magicite / Gathering)
+        buckets = {"monster": [], "magicite": [], "gathering": []}
+        for ai, a in enumerate(self.areas):
+            for si in range(len(a["sets"])):
+                if (ai, si) in self.chest_of:
+                    continue
+                kind = rnd.set_kind([it for _, it in a["sets"][si]])
+                buckets[kind].append((ai, si))
+        names = {"monster": "Monster", "magicite": "Magicite", "gathering": "Gathering"}
+        for kind in ("monster", "magicite", "gathering"):
+            for n, (ai, si) in enumerate(buckets[kind], 1):
+                t = f"{names[kind]} {n}"
+                self.rows.append((ai, si, t, kind)); self.title_of[(ai, si)] = t
 
     # ---- table rendering --------------------------------------------------
     def _cycle_names(self, s, cyc):
@@ -186,10 +207,10 @@ class App:
 
     def refresh(self):
         self.tree.delete(*self.tree.get_children())
-        for si, title, kind in self.rows:
-            s = self.sets[si]
+        for ai, si, title, kind in self.rows:
+            s = self.areas[ai]["sets"][si]
             vals = [title] + [self._cycle_names(s, c) for c in CYCLES]
-            self.tree.insert("", "end", iid=str(si), values=vals, tags=(kind,))
+            self.tree.insert("", "end", iid=f"{ai}.{si}", values=vals, tags=(kind,))
 
     # ---- editing ----------------------------------------------------------
     def on_double(self, event):
@@ -198,14 +219,15 @@ class App:
         if not row or col == "#1":          # title column, not editable
             return
         cyc = int(col[1:]) - 1              # #2 -> cycle 1, #3 -> 2, #4 -> 3
-        self.open_picker(int(row), cyc)
+        ai, si = (int(x) for x in row.split("."))
+        self.open_picker(ai, si, cyc)
 
-    def open_picker(self, si, cyc):
-        s = self.sets[si]
+    def open_picker(self, ai, si, cyc):
+        s = self.areas[ai]["sets"][si]
         cm = lootcft.slot_cycles(len(s))
         cyc_slots = [ci for ci in range(len(s)) if cyc in cm[ci]]
         cur_ids = [s[ci][1] for ci in cyc_slots]
-        title = self.title_of.get(si, f"Set {si}")
+        title = self.title_of.get((ai, si), f"Set {si}")
         cur_txt = " / ".join(dict.fromkeys(items.name(i) for i in cur_ids)) or "—"
 
         win = tk.Toplevel(self.root)
@@ -250,16 +272,17 @@ class App:
             if not sel:
                 return
             new = state["filtered"][sel[0]][0]
+            area_dirty = self.dirty.setdefault(ai, {})
             changed = 0
             for ci in cyc_slots:
                 off, old = s[ci]
                 if new != old:
-                    s[ci][1] = new; self.dirty[off] = new; changed += 1
+                    s[ci][1] = new; area_dirty[off] = new; changed += 1
             if changed:
                 self.refresh()
                 self.save_btn.config(state="normal")
-                self.status.config(text=f"{len(self.dirty)} pending edit(s). "
-                                        f"Click Save to ISO to apply.")
+                n = sum(len(d) for d in self.dirty.values())
+                self.status.config(text=f"{n} pending edit(s). Click Save to ISO to apply.")
             win.destroy()
 
         catcb.bind("<<ComboboxSelected>>", repop)
@@ -285,26 +308,32 @@ class App:
         txt.pack(fill="both", expand=True)
 
     def save(self):
-        if not self.dirty:
+        n = sum(len(d) for d in self.dirty.values())
+        if not n:
             messagebox.showinfo("Nothing to save", "No edits pending."); return
+        n_areas = sum(1 for d in self.dirty.values() if d)
         if not messagebox.askyesno("Write to ISO",
-                f"Apply {len(self.dirty)} change(s) to {self.disc_path}\n"
+                f"Apply {n} change(s) across {n_areas} area file(s)\n"
                 f"in {os.path.basename(self.iso)}?\n\n"
                 "This modifies the ISO in place — make sure you have a backup."):
             return
         try:
-            lootcft.apply_edits(self.cft_path, self.dirty)
-            data = open(self.cft_path, "rb").read()
-            with open(self.iso, "r+b") as f:
-                _, files = gciso.parse_fst(f)
-                _, off, size = gciso.find_file(files, self.disc_path)[0]
-                if len(data) != size:
-                    raise ValueError("size changed; aborting")
-                f.seek(off); f.write(data)
-            n = len(self.dirty); self.dirty.clear()
+            for ai, edits in self.dirty.items():
+                if not edits:
+                    continue
+                a = self.areas[ai]
+                lootcft.apply_edits(a["cft"], edits)
+                data = open(a["cft"], "rb").read()
+                with open(self.iso, "r+b") as f:
+                    _, files = gciso.parse_fst(f)
+                    _, off, size = gciso.find_file(files, a["disc"])[0]
+                    if len(data) != size:
+                        raise ValueError(f"{a['disc']}: size changed; aborting")
+                    f.seek(off); f.write(data)
+            self.dirty.clear()
             self.save_btn.config(state="disabled")
             self.status.config(text=f"Saved {n} change(s) to ISO.")
-            messagebox.showinfo("Saved", f"Wrote {n} chest change(s) into {self.disc_path}.")
+            messagebox.showinfo("Saved", f"Wrote {n} chest change(s) across {n_areas} area file(s).")
         except Exception as e:
             messagebox.showerror("Save error", str(e))
 
