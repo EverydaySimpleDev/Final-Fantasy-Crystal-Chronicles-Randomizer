@@ -15,13 +15,16 @@ with buttons and file pickers. The Randomizer never writes your source ISO - it
 always creates a separate output ISO (you choose where).
 """
 import contextlib
+import datetime
 import io
+import json
 import os
 import queue
 import random
 import shutil
 import threading
 import tkinter as tk
+import zipfile as _zipfile
 from tkinter import ttk, filedialog, messagebox, scrolledtext
 
 import lootcft
@@ -616,6 +619,18 @@ CUSTOM ITEM
     first chest for testing. To have the randomizer/editor carry it, follow the
     printed note (add it to ffcc_items NAMES, drop it from randomizer EXCLUDE).
 
+AP PATCH
+  Prepares a copy of your vanilla ISO for use with the FFCC Archipelago client.
+  1. Browse to your clean, unmodified vanilla ISO (source — never touched).
+  2. The output path auto-fills to "<source> - AP.iso"; change it with "Save as…".
+  3. Click "Patch for Archipelago". The tool copies the vanilla ISO, installs the
+     AP Item definition (0x162), then overwrites every game8-identified chest slot
+     with that item ID. The patched ISO is identical for every AP seed — the
+     Archipelago client delivers the actual randomized items via Dolphin memory
+     writes when each chest is opened at runtime.
+  You only need to run this once. Use the same AP-patched ISO for any future
+  Archipelago seeds; the client handles all per-seed item differences.
+
 Only DROPPABLE items go in chests (artifacts, magicite, phoenix down, materials,
 food, recipes). Equipment can't drop from a chest, so it is never offered.
 """
@@ -785,6 +800,191 @@ class CustomItemTab(ttk.Frame):
         self.log.write(run_capture(work))
 
 
+# ---------------------------------------------------------------------------
+# AP Patch tab
+# ---------------------------------------------------------------------------
+class APPatchTab(ttk.Frame):
+    """Copies a vanilla ISO and patches all game8 chests for Archipelago.
+
+    Standard mode: every chest becomes AP Item (0x162); client delivers real items.
+    Hybrid mode  : add a .ffcc file — your own items appear physically in chests
+                   while items belonging to other players still show as AP Item.
+    """
+
+    def __init__(self, nb):
+        super().__init__(nb, padding=8)
+        self.src  = tk.StringVar()   # vanilla ISO — read only, never modified
+        self.out  = tk.StringVar()   # AP-patched copy — what gets written
+        self.ffcc = tk.StringVar()   # optional .ffcc placement file (hybrid mode)
+
+        ttk.Label(self, text=(
+            "Creates an Archipelago-ready ISO.\n\n"
+            "Standard patch  (no .ffcc file): every game8 chest is replaced with AP Item.\n"
+            "  The client intercepts each pickup and writes the real item to memory.\n\n"
+            "Hybrid patch  (with .ffcc file): your own items appear as real item models\n"
+            "  in the chest.  Items for other players still show as AP Item.  The game\n"
+            "  engine gives your items on pickup; the client skips those to avoid doubles."
+        ), justify="left", foreground="#444").pack(anchor="w", pady=(0, 8))
+
+        sf = ttk.Frame(self); sf.pack(fill="x", pady=2)
+        ttk.Label(sf, text="Vanilla ISO (source, never changed):", width=36).pack(side="left")
+        ttk.Entry(sf, textvariable=self.src).pack(side="left", fill="x", expand=True, padx=4)
+        ttk.Button(sf, text="Browse…", command=self._browse_src).pack(side="left")
+        self.src.trace_add("write", lambda *_: self._suggest_out())
+
+        of = ttk.Frame(self); of.pack(fill="x", pady=2)
+        ttk.Label(of, text="Output ISO (AP-patched copy):", width=36).pack(side="left")
+        ttk.Entry(of, textvariable=self.out).pack(side="left", fill="x", expand=True, padx=4)
+        ttk.Button(of, text="Save as…", command=self._browse_out).pack(side="left")
+
+        ff = ttk.Frame(self); ff.pack(fill="x", pady=2)
+        ttk.Label(ff, text=".ffcc placement file (optional — hybrid mode):", width=36).pack(side="left")
+        ttk.Entry(ff, textvariable=self.ffcc).pack(side="left", fill="x", expand=True, padx=4)
+        ttk.Button(ff, text="Browse…", command=self._browse_ffcc).pack(side="left")
+
+        bf = ttk.Frame(self); bf.pack(fill="x", pady=8)
+        self._btn = ttk.Button(bf, text="Patch for Archipelago", command=self.do_patch)
+        self._btn.pack(side="left")
+        self._mode_lbl = ttk.Label(bf, text="  Mode: standard (all chests → AP Item)",
+                                   foreground="#666")
+        self._mode_lbl.pack(side="left")
+        self.ffcc.trace_add("write", lambda *_: self._update_mode_label())
+
+        self.log = LogPanel(self)
+        self.log.pack(fill="both", expand=True)
+
+    def _update_mode_label(self, *_):
+        f = self.ffcc.get().strip()
+        if f and os.path.isfile(f):
+            self._mode_lbl.config(text="  Mode: hybrid (own items in chest, others → AP Item)",
+                                  foreground="#0a0")
+        elif f:
+            self._mode_lbl.config(text="  Mode: hybrid (file not found yet)", foreground="#a60")
+        else:
+            self._mode_lbl.config(text="  Mode: standard (all chests → AP Item)", foreground="#666")
+
+    @staticmethod
+    def _same(a, b):
+        return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
+
+    def _browse_src(self):
+        browse_iso(self.src)
+
+    def _browse_out(self):
+        s = self.src.get().strip()
+        init = os.path.basename(os.path.splitext(s)[0] + " - AP.iso") if s else "AP.iso"
+        p = filedialog.asksaveasfilename(
+            title="Save AP-patched ISO as", defaultextension=".iso",
+            initialfile=init,
+            filetypes=[("Disc image", "*.iso *.gcm"), ("All", "*.*")])
+        if p:
+            self.out.set(p)
+
+    def _browse_ffcc(self):
+        p = filedialog.askopenfilename(
+            title="Select Archipelago .ffcc placement file",
+            filetypes=[("FFCC placement file", "*.ffcc"), ("ZIP container", "*.zip"), ("All", "*.*")])
+        if p:
+            self.ffcc.set(p)
+            self._suggest_out_from_ffcc(p)
+
+    def _suggest_out_from_ffcc(self, ffcc_path):
+        """Update the output ISO path to include seed + timestamp from the .ffcc file."""
+        s = self.src.get().strip()
+        if not s:
+            return
+        seed = None
+        try:
+            try:
+                with _zipfile.ZipFile(ffcc_path) as zf:
+                    for name in zf.namelist():
+                        if name.endswith(".ffcc"):
+                            seed = json.loads(zf.read(name)).get("seed")
+                            break
+            except _zipfile.BadZipFile:
+                with open(ffcc_path, "r", encoding="utf-8") as fh:
+                    seed = json.load(fh).get("seed")
+        except Exception:
+            pass
+        stem = os.path.splitext(s)[0]
+        ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        if seed:
+            self.out.set(f"{stem} - AP_{seed}_{ts}.iso")
+        else:
+            self.out.set(f"{stem} - AP_{ts}.iso")
+
+    def _suggest_out(self, *_):
+        s = self.src.get().strip()
+        if s and not self.out.get().strip():
+            self.out.set(os.path.splitext(s)[0] + " - AP.iso")
+
+    def do_patch(self):
+        src = self.src.get().strip()
+        if not src or not os.path.isfile(src):
+            messagebox.showwarning("No vanilla ISO",
+                                   "Browse to your clean, unmodified FFCC ISO first.")
+            return
+        out = self.out.get().strip()
+        if not out:
+            messagebox.showwarning("No output path",
+                                   "Choose where to save the AP-patched ISO.")
+            return
+        if self._same(src, out):
+            messagebox.showerror("Same file",
+                                 "Output must be a different file from the source.\n"
+                                 "The vanilla ISO is never modified.")
+            return
+
+        ffcc = self.ffcc.get().strip()
+        hybrid = bool(ffcc and os.path.isfile(ffcc))
+        if ffcc and not hybrid:
+            messagebox.showerror(".ffcc file not found",
+                                 f"The .ffcc file was not found:\n{ffcc}\n\n"
+                                 "Clear the field to use standard mode, or fix the path.")
+            return
+
+        if (os.path.isfile(out) and
+                not messagebox.askyesno("Overwrite?",
+                                        f"{os.path.basename(out)} already exists. Overwrite it?")):
+            return
+
+        try:
+            shutil.copy2(src, out)
+        except Exception as e:
+            messagebox.showerror("Copy failed", str(e))
+            return
+
+        mode_str = "hybrid" if hybrid else "standard"
+        self.log.write(f"Copied {os.path.basename(src)}  →  {os.path.basename(out)}")
+        self.log.write(f"Patching chests ({mode_str} mode) — this may take a moment…")
+        self._btn.config(state="disabled")
+        self._q = queue.Queue()
+        if hybrid:
+            threading.Thread(target=self._worker_hybrid, args=(out, src, ffcc),
+                             daemon=True).start()
+        else:
+            threading.Thread(target=self._worker_standard, args=(out, src),
+                             daemon=True).start()
+        self.after(100, self._poll)
+
+    def _worker_standard(self, out, src):
+        result = run_capture(rnd.cmd_ap_patch, out, src)
+        self._q.put(result)
+
+    def _worker_hybrid(self, out, src, ffcc):
+        result = run_capture(rnd.cmd_hybrid_patch, out, src, ffcc)
+        self._q.put(result)
+
+    def _poll(self):
+        try:
+            result = self._q.get_nowait()
+            self.log.write(result)
+            self.log.write("Done!  Load the output ISO in Dolphin, then connect the FFCC Archipelago client.")
+            self._btn.config(state="normal")
+        except queue.Empty:
+            self.after(100, self._poll)
+
+
 def main():
     root = tk.Tk()
     root.title("FFCC Modding Toolkit")
@@ -801,6 +1001,8 @@ def main():
     nb.add(FileToolsTab(nb), text="File Tools")
 
     nb.add(CustomItemTab(nb), text="Custom Item")
+
+    nb.add(APPatchTab(nb), text="AP Patch")
 
     helptab = ttk.Frame(nb, padding=8)
     nb.add(helptab, text="Help")

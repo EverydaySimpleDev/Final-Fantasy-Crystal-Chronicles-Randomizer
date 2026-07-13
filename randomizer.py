@@ -850,6 +850,200 @@ def cmd_patch(iso, json_path, max_artifacts=4):
     print(f"Patched {total} slot(s) into {os.path.basename(iso)}.")
 
 
+def cmd_hybrid_patch(iso, ref_iso, ffcc_file):
+    """Hybrid AP patch: own-player chests get the real item; others get AP Item.
+
+    Reads the .ffcc placement file produced by Archipelago generation to decide
+    which item belongs in each chest.  For this player's own items the game
+    engine gives the item naturally on chest open, so the AP client skips the
+    memory-write for those locations (preventing a double-give).
+
+    Usage:
+        py randomizer.py ap-hybrid "Hacked Rom.iso" --ref "Vanilla.iso" --ffcc "seed.ffcc"
+    """
+    import json, zipfile as _zipfile
+
+    AP_ITEM_ID = 0x162
+
+    # ── 1. Read placement from .ffcc file ──────────────────────────────────────
+    # Accepts either a raw .ffcc JSON file (the one sitting in the output folder)
+    # or the .zip container that wraps it — both contain the same placement data.
+    placement_json = None
+    try:
+        with _zipfile.ZipFile(ffcc_file) as zf:
+            for name in zf.namelist():
+                if name.endswith(".ffcc"):
+                    placement_json = json.loads(zf.read(name))
+                    break
+        if placement_json is None:
+            sys.exit(f"No .ffcc entry found inside {ffcc_file}")
+    except _zipfile.BadZipFile:
+        # The user selected the raw .ffcc JSON file rather than the .zip wrapper —
+        # both are valid and carry identical placement data; read it directly.
+        try:
+            with open(ffcc_file, "r", encoding="utf-8") as fh:
+                placement_json = json.load(fh)
+            print(f"Note: reading {os.path.basename(ffcc_file)} as plain JSON "
+                  f"(not a ZIP — both formats are accepted).")
+        except Exception as e2:
+            sys.exit(f"Could not read {ffcc_file} as ZIP or JSON: {e2}")
+    except Exception as e:
+        sys.exit(f"Could not open {ffcc_file}: {e}")
+
+    self_player = placement_json.get("player", "")
+    raw_locs    = placement_json.get("locations", {})
+    print(f"Loaded placement for player '{self_player}' — {len(raw_locs)} location(s).")
+
+    # Build lookup: (dungeon, cycle, game8_chest_no) -> item_id to write in binary
+    chest_items = {}  # (dungeon:str, cycle:int, chest:int) -> int
+    real_count  = 0
+    for loc_name, loc_data in raw_locs.items():
+        dungeon  = loc_data.get("dungeon", "")
+        cycle    = int(loc_data.get("cycle", 1))
+        chest_no = int(loc_data.get("game8_chest", 0))
+        is_self  = loc_data.get("player") == self_player
+
+        if is_self:
+            # Use the item_id written directly into the .ffcc file — no name
+            # resolution needed and guaranteed to match the in-game ID exactly.
+            raw_id = loc_data.get("item_id")
+            item_id = int(raw_id) if raw_id is not None else None
+            if item_id is not None and is_item(item_id):
+                chest_items[(dungeon, cycle, chest_no)] = item_id
+                real_count += 1
+            else:
+                # Trap / Progressive Artifact / item_id absent → AP Item placeholder
+                chest_items[(dungeon, cycle, chest_no)] = AP_ITEM_ID
+        else:
+            chest_items[(dungeon, cycle, chest_no)] = AP_ITEM_ID
+
+    other_count = len(raw_locs) - real_count
+    print(f"  {real_count} own real items → real model in chest"
+          f",  {other_count} other/trap → AP Item placeholder.")
+
+    # ── 2. Install AP Item definition ─────────────────────────────────────────
+    try:
+        import customitem
+        if customitem.ensure_ap_item(iso):
+            print("Installed AP Item into ISO (definition + name + icon).")
+    except Exception as e:
+        print(f"Note: could not auto-install AP Item ({e}); 0x162 must already be present.")
+
+    # ── 3. Apply per-cycle item assignments ────────────────────────────────────
+    found = dungeons_in_iso(iso)
+    total_slots = 0
+
+    for script, friendly, discs in found:
+        chest_map = dungeon_chest_map(ref_iso, script, discs)
+        if not chest_map:
+            print(f"  {friendly}: no game8 chest data — skipped")
+            continue
+
+        for disc in discs:
+            area = _area_no(disc)
+            area_chest_map = {si: cn for (a, si), cn in chest_map.items() if a == area}
+            if not area_chest_map:
+                continue
+
+            tmp  = os.path.join(tempfile.gettempdir(), "hybrid_" + os.path.basename(disc))
+            size = _extract(iso, disc, tmp)
+            sets = lootcft.find_sets(tmp, valid=is_item)
+
+            edits = {}
+            for si, chest_no in area_chest_map.items():
+                if si >= len(sets):
+                    continue
+                slots      = sets[si]
+                cycle_map  = lootcft.slot_cycles(len(slots))  # list of {cycle_int} per slot
+                for k, (off, cur) in enumerate(slots):
+                    if not is_item(cur):
+                        continue
+                    cycle   = next(iter(cycle_map[k]))         # extract int from single-element set
+                    item_id = chest_items.get((friendly, cycle, chest_no), AP_ITEM_ID)
+                    edits[off] = item_id
+
+            if edits:
+                lootcft.apply_edits(tmp, edits)
+                buf = open(tmp, "rb").read()
+                if len(buf) != size:
+                    raise ValueError(f"{disc}: size changed, refusing to inject")
+                with open(iso, "r+b") as f:
+                    _, files = gciso.parse_fst(f)
+                    _, off, _ = gciso.find_file(files, disc)[0]
+                    f.seek(off)
+                    f.write(buf)
+                total_slots += len(edits)
+                print(f"  {script:8s} a{area}: {len(edits)} slot(s) patched (hybrid)")
+
+    print(f"Hybrid AP patch complete: {total_slots} slot(s) written into {os.path.basename(iso)}.")
+
+
+def cmd_ap_patch(iso, ref_iso):
+    """Replace every game8-matched chest set in `iso` with AP Item (0x162).
+
+    `ref_iso` must be the unmodified vanilla ISO so the chest-set matcher can
+    identify which loot sets are game8-tracked chests (vs. enemy/gathering drops).
+
+    After running this command, every game8 chest gives the custom AP Item when
+    opened. The Archipelago client then intercepts the pickup and delivers the
+    real randomized item via memory writes.
+
+    Usage:
+        py randomizer.py ap-patch "Hacked Rom.iso" --ref "Vanilla.iso"
+    """
+    AP_ITEM_ID = 0x162
+
+    try:
+        import customitem
+        if customitem.ensure_ap_item(iso):
+            print("Installed AP Item into ISO (definition + name + icon).")
+    except Exception as e:
+        print(f"Note: could not auto-install AP Item ({e}); 0x162 must already be present.")
+
+    found = dungeons_in_iso(iso)
+    total_slots = 0
+
+    for script, friendly, discs in found:
+        chest_map = dungeon_chest_map(ref_iso, script, discs)
+        if not chest_map:
+            print(f"  {friendly}: no game8 chest data — skipped")
+            continue
+
+        for disc in discs:
+            area = _area_no(disc)
+            # Set indices in this area that are game8-identified chests
+            chest_sets = {si for (a, si), _cn in chest_map.items() if a == area}
+            if not chest_sets:
+                continue
+
+            tmp = os.path.join(tempfile.gettempdir(), "ap_" + os.path.basename(disc))
+            size = _extract(iso, disc, tmp)
+            sets = lootcft.find_sets(tmp, valid=is_item)
+
+            edits = {}
+            for si in sorted(chest_sets):
+                if si >= len(sets):
+                    continue
+                for off, cur in sets[si]:
+                    if is_item(cur):
+                        edits[off] = AP_ITEM_ID
+
+            if edits:
+                lootcft.apply_edits(tmp, edits)
+                buf = open(tmp, "rb").read()
+                if len(buf) != size:
+                    raise ValueError(f"{disc}: size changed, refusing to inject")
+                with open(iso, "r+b") as f:
+                    _, files = gciso.parse_fst(f)
+                    _, off, _ = gciso.find_file(files, disc)[0]
+                    f.seek(off)
+                    f.write(buf)
+                total_slots += len(edits)
+                print(f"  {script:8s} a{area}: {len(edits)} slot(s) -> AP Item")
+
+    print(f"AP patch complete: {total_slots} slot(s) replaced in {os.path.basename(iso)}.")
+
+
 def cmd_run(iso, args, apply):
     rng = random.Random(args.seed)
     pool = build_pool(args.pool)
@@ -901,8 +1095,8 @@ def cmd_run(iso, args, apply):
 def main():
     p = argparse.ArgumentParser(description="Randomize FFCC chest contents in an ISO.")
     p.add_argument("command", choices=["list", "preview", "run", "spoiler", "export",
-                                        "patch", "shops", "preview-shops", "list-shops",
-                                        "prices"])
+                                        "patch", "ap-patch", "ap-hybrid", "shops", "preview-shops",
+                                        "list-shops", "prices"])
     p.add_argument("iso")
     p.add_argument("json", nargs="?", help="JSON file (for `patch`)")
     p.add_argument("--shop", action="append",
@@ -927,6 +1121,7 @@ def main():
                    help="randomize only Game8-identified chests, leaving enemy-drop / "
                         "shared sets alone (needs --ref; dungeons without Game8 data are skipped)")
     p.add_argument("--ref", help="vanilla ISO used to label spoiler chests by Game8 chest number")
+    p.add_argument("--ffcc", help=".ffcc placement file (for `ap-hybrid`)")
     args = p.parse_args()
 
     if not os.path.isfile(args.iso):
@@ -943,6 +1138,16 @@ def main():
         if not args.json or not os.path.isfile(args.json):
             sys.exit("patch needs a JSON file: randomizer.py patch <iso> <file.json>")
         cmd_patch(args.iso, args.json, args.max_artifacts)
+    elif args.command == "ap-patch":
+        if not args.ref or not os.path.isfile(args.ref):
+            sys.exit("ap-patch needs --ref <vanilla.iso> to identify which sets are chests")
+        cmd_ap_patch(args.iso, args.ref)
+    elif args.command == "ap-hybrid":
+        if not args.ref or not os.path.isfile(args.ref):
+            sys.exit("ap-hybrid needs --ref <vanilla.iso>")
+        if not args.ffcc or not os.path.isfile(args.ffcc):
+            sys.exit("ap-hybrid needs --ffcc <seed.ffcc> (the Archipelago output file)")
+        cmd_hybrid_patch(args.iso, args.ref, args.ffcc)
     elif args.command == "list-shops":
         for base, name, _ in shops_in_iso(args.iso):
             print(f"  {base:12s} {name}")

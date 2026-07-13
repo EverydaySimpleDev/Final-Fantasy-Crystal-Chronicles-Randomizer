@@ -7,3 +7,5 @@
 *.chm
 memory/
 /memory
+build/
+dist/
