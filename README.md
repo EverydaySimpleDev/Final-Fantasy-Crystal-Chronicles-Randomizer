@@ -3,6 +3,12 @@
 Tools for viewing, randomizing, and hand-editing the treasure-chest contents of
 **Final Fantasy Crystal Chronicles** (GameCube), straight from an `.iso`.
 
+Deeper research writeups (dungeon spawn-index tables, custom-item/model
+recipes, world-map loading-zone randomization, boss reward-set data, and
+more) live in [`Documentation/`](Documentation/) rather than cluttering this
+file — check there first if you're looking for byte-level detail on how any
+of this actually works.
+
 ## Easiest: the all-in-one GUI
 
 ```
@@ -127,6 +133,22 @@ In the GUI, on the Randomizer tab tick **"Randomize shop inventories"** (and pic
 all shops or specific ones) and/or **"Randomize shop prices"**. (Per-class
 restriction for items is planned for the future.)
 
+### Gameplay Tweaks
+
+A few independent, single-purpose toggles live in the GUI's **"Gameplay
+Tweaks"** section (and as JSON keys, same idea as the chest data below —
+export to see the current state, edit, patch to apply):
+
+| Toggle | JSON key | What it does |
+| --- | --- | --- |
+| Mog never gets tired | `_mog_never_tired` (bool) | Removes the stamina penalty for running while Mog carries the chalice. Start.dol patch. |
+| Starting location | `_starting_location` (name) | Start a new game at Tipa (default), Marr's Pass, Alfitaria, or Fields of Fum instead of always Tipa. Limited to towns where Year 1 is completable. |
+| Skip Meteor Parasite → Mio questions → Raem | `_skip_mio_questions` (bool) | Jumps straight from the Meteor Parasite fight to the Raem fight. **Experimental** — not yet confirmed safe across a full playthrough; flagged in red in the GUI. |
+| Bonus Pools | `_randomize_bonus_pools` (bool) + `_bonus_pools` (per-dungeon override) | Randomizes the end-of-dungeon score-reward pool (separate from chests/enemy drops — see Notes below). `_bonus_pools` lets you hand-set exact items per dungeon/entry instead of (or on top of) randomizing; export a fresh JSON to see the current pool for every dungeon. |
+
+These are all independent of chest/item randomization and of each other —
+mix and match freely.
+
 ### JSON workflow (precise hand-editing)
 
 ```bash
@@ -199,6 +221,10 @@ has one or more area files `_0`, `_1`, …):
 - After patching, if any cycle ends up with **more than 4 artifacts** (the
   player's carry limit) you get a warning per dungeon/cycle. The patch still
   applies — you're in control — but it flags the over-limit cycle.
+- **`_bonus_pools`** (see Gameplay Tweaks above) is a *separate* top-level key
+  with its own shape — `{dungeon: {entry_index("0"-"7"): [item, item, item, item]}}`
+  — not part of the per-chest dungeon data above. Any of the 4 items can be
+  `null` to leave that one slot untouched.
 
 ---
 
@@ -250,6 +276,10 @@ py customitem.py show "copy.iso" 0x162
   `ffcc_items.py` and remove the id from `randomizer.EXCLUDE` (the tool prints the
   exact lines). Limits: reusing an existing model/icon is easy; a brand-new model
   or a new behaviour type needs graphics/executable work.
+- For the full byte-exact recipe (what actually makes something an "artifact"
+  vs. a plain item, the stat-effect family codes, and which item-model IDs
+  are already used vs. free) see `Documentation/Adding Custom Items and
+  Artifacts.md` and `Documentation/Item Model Reference.md`.
 
 ## Editing models & textures (Blender round-trip)
 
@@ -317,7 +347,26 @@ py chmio.py <file>          # byte-exact model-container round-trip check
 py dlst.py  <model.chm>     # inspect/verify display lists (faces)
 py chest.py table|find|setslot|set <file.cft> ...            # CLI single-file chest edits
 py cft.py tree|blocks|find|strings|block|calls <file.cft>    # inspect compiled script files
+py spawn_map.py table <file.cft>                             # coordinate-indexed monster/chest table for one file
+py spawn_map.py export <cft_dir> <out.json>                  # same, dumped for every dungeon at once
 ```
+
+---
+
+## Building a standalone executable
+
+For handing the GUI to someone without Python installed, `FFCC-Randomizer.spec`
+builds `ffcc_gui.py` (and everything it imports) into a single windowed `.exe`
+with [PyInstaller](https://pyinstaller.org/):
+
+```bash
+py -m pip install pyinstaller   # once
+py -m PyInstaller FFCC-Randomizer.spec --noconfirm
+```
+
+The result is `dist/FFCC-Randomizer.exe` — one self-contained file. Hand that
+to anyone; they just need their own legally-obtained ISO. `build/` and `dist/`
+are gitignored (regenerate them anytime by rerunning the command above).
 
 ---
 
@@ -332,10 +381,13 @@ py cft.py tree|blocks|find|strings|block|calls <file.cft>    # inspect compiled 
 - **Chests and enemy drops share the same `get_treasure` item pool**, so by
   default randomizing changes both. Use `--chests-only` (or untick "Randomize
   enemy drops too" in the GUI) to limit changes to the Game8-identified chests.
-- The **end-of-dungeon boss/bonus reward** is a separate subsystem (8 artifact
-  sets gated by cycle and bonus points) and is **not** touched by these tools —
-  chest randomization is independent of it. (See
-  `Boss Reward Sets (GameCube guide).md` for a transcription.)
+- The **end-of-dungeon boss/bonus reward** is a separate subsystem (8 item
+  entries per dungeon, gated by cycle and score) - independent of chest/enemy
+  randomization, but it now has its own toggle too: see "Bonus Pools" in the
+  GUI, or `randomize_bonus_pools()` / the `_bonus_pools` JSON key. Covers 13
+  of the 14 dungeons — Mount Vellenge has no bonus-pool block in the real
+  game, not a gap in the tooling. (See `Documentation/Boss Reward Sets
+  (GameCube guide).md` for a transcription.)
 - **All 14 dungeons** are covered, including Tida, Moschet Manor, Daemon's Court,
   and Rebena Te Ra. Dungeons span **multiple area files** (`_0`, `_1`, …) and the
   randomizer processes every area, with the 4-artifacts-per-cycle cap applied

@@ -381,6 +381,158 @@ def randomize_shops(iso, rng, only=None, apply=True, pool=None):
     return result
 
 
+# ---------------------------------------------------------------------------
+# Bonus-pool ("newbattle.cfd") randomization
+# ---------------------------------------------------------------------------
+# Post-stage bonus rewards are NOT in any .cft script - they're a flat table
+# in dvd/cft/newbattle.cfd of fixed-size CBossArtifactStage structs (one per
+# dungeon, 0x168 bytes each, per the real decomp struct in include/ffcc/
+# game.h): m_bonusConditions[16] (0x00-0x20, unrelated per-spawn data),
+# m_entries (0x20-0x160: 40x 8-byte entries, but only the first 8 -
+# m_prefixEntries - are the actual random reward pool CGame::GetBossArtifact
+# picks from; the other 32 are unrelated per-food/status data), then
+# m_rankThresholds[4] (0x160-0x168, the score-tier cutoffs shown in-game as
+# the point requirements). Each of the 8 reward entries holds 4 item ids
+# (m_values[4], 2 bytes each) - 32 real item-id slots per dungeon.
+# Verified byte-exact against a real ISO's newbattle.cfd this session (see
+# project_ffcc_newbattle_bonus_pools memory) - block offsets found by
+# locating each dungeon's own m_rankThresholds pattern directly.
+NEWBATTLE_ENTRY_COUNT = 8      # m_prefixEntries[8] - the real reward pool
+NEWBATTLE_ENTRY_SIZE = 8       # m_values[4], 2 bytes each
+NEWBATTLE_BLOCKS = {           # dungeon script -> its CBossArtifactStage file offset
+    "river": 0x18c0, "gob": 0x1a28, "mine": 0x1b90, "kinoko": 0x1cf8,
+    "ruin": 0x1e60, "gigas": 0x1fc8, "lava": 0x2130, "fort": 0x2298,
+    "cave": 0x2400, "water": 0x2568, "desert": 0x26d0, "swamp": 0x2838,
+    "city": 0x29a0,
+    # "meteo" has NO block - that slot in the real file is all zeros, not a
+    # missed offset (checked directly) - left out rather than guessed.
+}
+
+
+def _newbattle_disc(iso):
+    with open(iso, "rb") as f:
+        _, files = gciso.parse_fst(f)
+    return next((p for p, _, _ in files if p.endswith("newbattle.cfd")), None)
+
+
+def randomize_bonus_pools(iso, rng, mode="cross", pool=None, apply=True):
+    """Randomize the post-stage bonus-reward item pool (newbattle.cfd) for
+    every dungeon that has one (see NEWBATTLE_BLOCKS). `pool`: candidate item
+    ids (from build_pool()); `mode`: 'category' or 'cross', same semantics as
+    chest randomization (pick()). Score thresholds are left untouched - only
+    which items can be rewarded changes. Returns [(script, entry, value, old,
+    new)] for every slot actually changed."""
+    disc = _newbattle_disc(iso)
+    if disc is None:
+        return []
+    if pool is None:
+        pool = build_pool("all")
+    tmp = os.path.join(tempfile.gettempdir(), "nb_" + os.path.basename(disc))
+    size = _extract(iso, disc, tmp)
+    data = bytearray(open(tmp, "rb").read())
+    changes = []
+    for script, block_start in NEWBATTLE_BLOCKS.items():
+        entries_off = block_start + 0x20
+        for ei in range(NEWBATTLE_ENTRY_COUNT):
+            for vi in range(4):
+                o = entries_off + ei * NEWBATTLE_ENTRY_SIZE + vi * 2
+                cur = int.from_bytes(data[o:o + 2], "big")
+                if not is_item(cur):
+                    continue                  # leave non-item/sentinel values alone
+                new = pick(rng, cur, mode, pool)
+                if new != cur:
+                    data[o:o + 2] = new.to_bytes(2, "big")
+                    changes.append((script, ei, vi, cur, new))
+    if apply and changes:
+        if len(data) != size:
+            raise ValueError(f"{disc}: size changed, refusing to inject")
+        with open(iso, "r+b") as f:
+            _, files = gciso.parse_fst(f)
+            _, off, _ = gciso.find_file(files, disc)[0]
+            f.seek(off)
+            f.write(bytes(data))
+    return changes
+
+
+def read_bonus_pools(iso):
+    """{script: {entry_index: [4 item ids]}} for every dungeon with a bonus-
+    pool block (see NEWBATTLE_BLOCKS). Read-only, for inspection/JSON export."""
+    disc = _newbattle_disc(iso)
+    if disc is None:
+        return {}
+    tmp = os.path.join(tempfile.gettempdir(), "nb_read_" + os.path.basename(disc))
+    _extract(iso, disc, tmp)
+    data = open(tmp, "rb").read()
+    out = {}
+    for script, block_start in NEWBATTLE_BLOCKS.items():
+        entries_off = block_start + 0x20
+        pools = {}
+        for ei in range(NEWBATTLE_ENTRY_COUNT):
+            base = entries_off + ei * NEWBATTLE_ENTRY_SIZE
+            pools[ei] = [int.from_bytes(data[base + vi * 2:base + vi * 2 + 2], "big")
+                        for vi in range(4)]
+        out[script] = pools
+    return out
+
+
+def set_bonus_pools(iso, spec, apply=True):
+    """Force specific items into one or more dungeons' bonus-reward pools,
+    bypassing randomness entirely - the actual mechanism behind
+    randomize_bonus_pools() above, generalized to take exact values instead
+    of random ones (see project_ffcc_newbattle_bonus_pools memory for how
+    entry/value indices map to which score-tier/cycle can reach them).
+    `spec`: {script: {entry_index(0-7): [v0,v1,v2,v3]}} - any value may be
+    None to leave that one slot untouched. Reads/writes newbattle.cfd once
+    regardless of how many dungeons are given. Returns {script: [(entry,
+    value_index, old, new), ...]} for dungeons that actually changed."""
+    disc = _newbattle_disc(iso)
+    if disc is None or not spec:
+        return {}
+    tmp = os.path.join(tempfile.gettempdir(), "nb_set_" + os.path.basename(disc))
+    size = _extract(iso, disc, tmp)
+    data = bytearray(open(tmp, "rb").read())
+    result = {}
+    for script, entries in spec.items():
+        if script not in NEWBATTLE_BLOCKS:
+            raise ValueError(f"{script!r} has no bonus-pool block "
+                             f"(valid: {sorted(NEWBATTLE_BLOCKS)})")
+        entries_off = NEWBATTLE_BLOCKS[script] + 0x20
+        changes = []
+        for ei, values in entries.items():
+            ei = int(ei)
+            if not (0 <= ei < NEWBATTLE_ENTRY_COUNT):
+                raise ValueError(f"entry index {ei} out of range "
+                                 f"(0-{NEWBATTLE_ENTRY_COUNT - 1})")
+            for vi, new in enumerate(values):
+                if new is None:
+                    continue
+                o = entries_off + ei * NEWBATTLE_ENTRY_SIZE + vi * 2
+                old = int.from_bytes(data[o:o + 2], "big")
+                new = int(new)
+                if new != old:
+                    data[o:o + 2] = new.to_bytes(2, "big")
+                    changes.append((ei, vi, old, new))
+        if changes:
+            result[script] = changes
+    if apply and result:
+        if len(data) != size:
+            raise ValueError(f"{disc}: size changed, refusing to inject")
+        with open(iso, "r+b") as f:
+            _, files = gciso.parse_fst(f)
+            _, off, _ = gciso.find_file(files, disc)[0]
+            f.seek(off)
+            f.write(bytes(data))
+    return result
+
+
+def set_bonus_pool(iso, script, entries, apply=True):
+    """Force specific items into ONE dungeon's bonus-reward pool. `entries`:
+    {entry_index(0-7): [v0,v1,v2,v3]}, any value None to leave that slot
+    untouched. Convenience wrapper around set_bonus_pools() for a single
+    dungeon. Returns [(entry, value_index, old, new)]."""
+    return set_bonus_pools(iso, {script: entries}, apply=apply).get(script, [])
+
+
 def _param_disc(iso):
     with open(iso, "rb") as f:
         _, files = gciso.parse_fst(f)
@@ -452,6 +604,185 @@ def randomize_prices(iso, rng, apply=True, pool=None):
             f.seek(off)
             f.write(bytes(data))
     return changed
+
+
+MOG_PRESSURE_DOL_OFFSET = 0x109bd4
+MOG_PRESSURE_ORIG = bytes.fromhex("38800002")     # li r4, 2
+MOG_PRESSURE_PATCHED = bytes.fromhex("38800000")  # li r4, 0
+
+
+def patch_mog_never_tired(iso, apply=True):
+    """Patch Start.dol so Mog's stamina ('pressure') never builds up while
+    running with the chalice, removing the 'gets tired and drops it' penalty
+    entirely. Single-instruction change in `CGPartyObj::gpmMove()`'s
+    fast-movement branch (`li r4,2` -> `li r4,0`, so the `+= delta` there adds
+    zero instead of 2/frame). Verified against the retail NTSC-US `main.dol`
+    (file offset 0x109bd4 = RAM 0x80119e34, cross-checked via the DOL's own
+    section headers). Returns True once the patch is present (freshly applied
+    or already there); raises if the ISO's bytes there don't match either the
+    vanilla original or the patched form (wrong game version)."""
+    with open(iso, "r+b" if apply else "rb") as f:
+        off, _ = gciso.dol_span(f)
+        f.seek(off + MOG_PRESSURE_DOL_OFFSET)
+        cur = f.read(4)
+        if cur == MOG_PRESSURE_PATCHED:
+            return True
+        if cur != MOG_PRESSURE_ORIG:
+            raise ValueError(f"unexpected bytes at Mog-pressure patch site: {cur.hex()} "
+                              f"(expected {MOG_PRESSURE_ORIG.hex()} - wrong game version?)")
+        if apply:
+            f.seek(off + MOG_PRESSURE_DOL_OFFSET)
+            f.write(MOG_PRESSURE_PATCHED)
+    return True
+
+
+# Starting-location patch (user-discovered and byte-verified, 2026-09-11): a
+# new game's opening camera focus (farewell_0.cft) and the caravan's actual
+# initial spawn point (ffcc_5.cft) each read a dynamic/persisted value that
+# currently always resolves to Tipa. Replacing that 5-byte read with a
+# hardcoded `PUSHI <id>` forces a specific town instead. Only destinations
+# where Year 1 is completable are offered - Tipa needs no patch at all.
+FAREWELL_CAMERA_DISC = "dvd/cft/farewell_0.cft"
+FAREWELL_CAMERA_OFFSET = 0x7255
+FAREWELL_CAMERA_ORIG = bytes.fromhex("0000003d09")   # GET this[0x3d09]
+
+FFCC5_SPAWN_DISC = "dvd/cft/ffcc_5.cft"
+FFCC5_SPAWN_OFFSET = 0x2FC3B
+FFCC5_SPAWN_ORIG = bytes.fromhex("030000ffff")        # PUSHI 0xffff (sentinel)
+
+# name -> (farewell_0 camera id, ffcc_5 spawn id). Tipa = None (vanilla, no patch).
+STARTING_LOCATIONS = {
+    "Tipa": None,
+    "Marr's Pass": (0x0C, 0x10),
+    "Alfitaria": (0x16, 0x11),
+    "Fields of Fum": (0x2A, 0x13),
+}
+
+
+def _patch_pushi_id(iso, disc, offset, orig, new_id, apply):
+    """Overwrite a 5-byte `<op> <3 zero bytes> <id>` instruction at `offset`
+    within `disc` with `PUSHI <new_id>` (`03 00 00 00 <new_id>`). Accepts
+    either the true vanilla bytes or an already-applied `PUSHI <anything>` at
+    that same site (so re-picking a different location on top of a
+    previously patched copy still works); raises on anything else."""
+    tmp = os.path.join(tempfile.gettempdir(), "startloc_" + os.path.basename(disc))
+    size = _extract(iso, disc, tmp)
+    data = bytearray(open(tmp, "rb").read())
+    cur = bytes(data[offset:offset + 5])
+    already_patched = cur[0] == 0x03 and cur[1:4] == b"\x00\x00\x00"
+    if cur != orig and not already_patched:
+        raise ValueError(f"{disc}@0x{offset:x}: unexpected bytes {cur.hex()} "
+                          f"(expected {orig.hex()} - wrong game version?)")
+    if apply:
+        data[offset:offset + 5] = bytes([0x03, 0x00, 0x00, 0x00, new_id])
+        with open(tmp, "wb") as f:
+            f.write(data)
+        if len(data) != size:
+            raise ValueError(f"{disc}: size changed, refusing to inject")
+        with open(iso, "r+b") as f:
+            _, files = gciso.parse_fst(f)
+            _, off, _ = gciso.find_file(files, disc)[0]
+            f.seek(off)
+            f.write(bytes(data))
+
+
+def patch_starting_location(iso, location, apply=True):
+    """Retarget where a brand-new game begins. `location` must be a key of
+    STARTING_LOCATIONS. Returns True if a patch was (or would be) applied,
+    False for "Tipa" (vanilla default, nothing to do)."""
+    if location not in STARTING_LOCATIONS:
+        raise ValueError(f"unknown starting location {location!r} - "
+                          f"choose one of {list(STARTING_LOCATIONS)}")
+    ids = STARTING_LOCATIONS[location]
+    if ids is None:
+        return False
+    farewell_id, ffcc5_id = ids
+    _patch_pushi_id(iso, FAREWELL_CAMERA_DISC, FAREWELL_CAMERA_OFFSET,
+                     FAREWELL_CAMERA_ORIG, farewell_id, apply)
+    _patch_pushi_id(iso, FFCC5_SPAWN_DISC, FFCC5_SPAWN_OFFSET,
+                     FFCC5_SPAWN_ORIG, ffcc5_id, apply)
+    return True
+
+
+def starting_location_status(iso):
+    """Return the STARTING_LOCATIONS name matching what's currently in `iso`
+    (by reading ffcc_5.cft's own spawn-point byte back), or 'Tipa' if it's
+    still vanilla/unrecognized."""
+    tmp = os.path.join(tempfile.gettempdir(), "startloc_status_ffcc_5.cft")
+    _extract(iso, FFCC5_SPAWN_DISC, tmp)
+    data = open(tmp, "rb").read()
+    cur_id = data[FFCC5_SPAWN_OFFSET + 4]
+    for name, ids in STARTING_LOCATIONS.items():
+        if ids is not None and ids[1] == cur_id:
+            return name
+    return "Tipa"
+
+
+# Skip Meteor Parasite -> Mio questions -> Raem: a single-character patch in
+# meteo_2.cft's own STR pool retargets the post-Meteor-Parasite script name
+# from "last_5" (the memory/diary-check gate that leads into the Mio
+# questions) to "last_3" (the Raem fight itself). User-discovered and byte-
+# verified (2026-09-13). EXPERIMENTAL: unclear whether skipping the Mio
+# questions this way leaves any state unset that a later check expects -
+# not yet confirmed safe by a full playthrough.
+METEO2_SKIP_DISC = "dvd/cft/meteo_2.cft"
+METEO2_SKIP_OFFSET = 0x55DC3
+METEO2_SKIP_ORIG = bytes.fromhex("35")      # ASCII '5' (of "last_5")
+METEO2_SKIP_PATCHED = bytes.fromhex("33")   # ASCII '3' (of "last_3")
+
+
+def patch_skip_mio_questions(iso, apply=True):
+    """Retarget the post-Meteor-Parasite script from `last_5` to `last_3`,
+    skipping straight to the Raem fight instead of the Mio question/diary-
+    check sequence. Single-byte STR-pool patch. Returns True once present
+    (freshly applied or already there); raises if the byte doesn't match
+    either the vanilla original or the patched form (wrong game version)."""
+    with open(iso, "r+b" if apply else "rb") as f:
+        _, files = gciso.parse_fst(f)
+        _, off, _ = gciso.find_file(files, METEO2_SKIP_DISC)[0]
+        f.seek(off + METEO2_SKIP_OFFSET)
+        cur = f.read(1)
+        if cur == METEO2_SKIP_PATCHED:
+            return True
+        if cur != METEO2_SKIP_ORIG:
+            raise ValueError(f"unexpected byte at meteo_2 skip site: {cur.hex()} "
+                              f"(expected {METEO2_SKIP_ORIG.hex()} - wrong game version?)")
+        if apply:
+            f.seek(off + METEO2_SKIP_OFFSET)
+            f.write(METEO2_SKIP_PATCHED)
+    return True
+
+
+def skip_mio_questions_status(iso):
+    """True if `iso`'s meteo_2.cft already has the Raem-skip patch applied."""
+    tmp = os.path.join(tempfile.gettempdir(), "skipmio_meteo_2.cft")
+    _extract(iso, METEO2_SKIP_DISC, tmp)
+    data = open(tmp, "rb").read()
+    cur = data[METEO2_SKIP_OFFSET:METEO2_SKIP_OFFSET + 1]
+    if cur == METEO2_SKIP_PATCHED:
+        return True
+    if cur == METEO2_SKIP_ORIG:
+        return False
+    raise ValueError(f"unexpected byte at meteo_2 skip site: {cur.hex()} "
+                      f"(expected {METEO2_SKIP_ORIG.hex()} or {METEO2_SKIP_PATCHED.hex()} "
+                      f"- wrong game version?)")
+
+
+def mog_never_tired_status(iso):
+    """True if `iso`'s Start.dol already has the Mog-never-tired patch applied,
+    False if it's still vanilla. Raises the same way `patch_mog_never_tired`
+    does if the bytes there are neither (wrong game version)."""
+    with open(iso, "rb") as f:
+        off, _ = gciso.dol_span(f)
+        f.seek(off + MOG_PRESSURE_DOL_OFFSET)
+        cur = f.read(4)
+    if cur == MOG_PRESSURE_PATCHED:
+        return True
+    if cur == MOG_PRESSURE_ORIG:
+        return False
+    raise ValueError(f"unexpected bytes at Mog-pressure patch site: {cur.hex()} "
+                      f"(expected {MOG_PRESSURE_ORIG.hex()} or {MOG_PRESSURE_PATCHED.hex()} "
+                      f"- wrong game version?)")
 
 
 def cmd_shops(iso, args, apply):
@@ -706,6 +1037,33 @@ def cmd_export(iso, out_path, ref=None):
     """Dump current chest contents to an editable JSON
     (level -> area -> set -> cycle)."""
     data = {"_format": JSON_FORMAT}
+    try:
+        data["_mog_never_tired"] = mog_never_tired_status(iso)
+    except Exception:
+        pass  # older/unrecognized dol - leave the key out rather than fail the export
+    try:
+        data["_starting_location"] = starting_location_status(iso)
+    except Exception:
+        pass  # older/unrecognized cft - leave the key out rather than fail the export
+    try:
+        data["_skip_mio_questions"] = skip_mio_questions_status(iso)
+    except Exception:
+        pass  # older/unrecognized cft - leave the key out rather than fail the export
+    data["_randomize_bonus_pools"] = False    # set true to auto-randomize on patch
+    try:
+        pools = read_bonus_pools(iso)
+        if pools:
+            # explicit overrides applied AFTER _randomize_bonus_pools (if both are
+            # set) - edit specific entries here for exact control, leave others
+            # alone. See project_ffcc_newbattle_bonus_pools memory for which entry
+            # indices (0-7) a given cycle/score-tier can actually reach.
+            data["_bonus_pools"] = {
+                script: {str(ei): [items.label(v) for v in vals]
+                        for ei, vals in entries.items()}
+                for script, entries in pools.items()
+            }
+    except Exception:
+        pass  # older/unrecognized newbattle.cfd - leave the key out rather than fail
     for script, friendly, discs in dungeons_in_iso(iso):
         dd = {"_name": friendly}
         # dungeon-wide numbering (each Game8 chest once); every other set is
@@ -775,6 +1133,55 @@ def cmd_patch(iso, json_path, max_artifacts=4):
         print(f"note: could not auto-install AP Item ({e}); JSON placing it may fail")
     with open(json_path, encoding="utf-8") as f:
         spec = json.load(f)
+    if spec.get("_mog_never_tired"):
+        try:
+            patch_mog_never_tired(iso, apply=True)
+            print("Applied Mog-never-tired Start.dol patch.")
+        except Exception as e:
+            print(f"note: could not apply Mog-never-tired patch ({e})")
+    loc = spec.get("_starting_location")
+    if loc and loc != "Tipa":
+        try:
+            patch_starting_location(iso, loc, apply=True)
+            print(f"Applied starting-location patch: {loc}.")
+            if loc == "Fields of Fum":
+                print("  WARNING: do not change your chalice element away from Fire "
+                      "before you're ready to cross back - the Miasma Stream there is "
+                      "Fire, and switching away (e.g. to Wind in Selepation Cave) can "
+                      "soft-lock your only way home, forcing a new save file.")
+        except Exception as e:
+            print(f"note: could not apply starting-location patch ({e})")
+    if spec.get("_skip_mio_questions"):
+        try:
+            patch_skip_mio_questions(iso, apply=True)
+            print("Applied Meteor Parasite -> Raem skip patch (Mio questions skipped).")
+        except Exception as e:
+            print(f"note: could not apply Mio-questions-skip patch ({e})")
+    if spec.get("_randomize_bonus_pools"):
+        try:
+            n = len(randomize_bonus_pools(iso, random.Random(), mode="cross",
+                                          pool=build_pool("all"), apply=True))
+            print(f"Randomized bonus pools: {n} slot(s) across "
+                  f"{len(NEWBATTLE_BLOCKS)} dungeon(s).")
+        except Exception as e:
+            print(f"note: could not randomize bonus pools ({e})")
+    bonus_overrides = spec.get("_bonus_pools")
+    if bonus_overrides:
+        try:
+            parsed = {script: {int(ei): [resolve_item(v) if v is not None else None
+                                        for v in vals]
+                               for ei, vals in entries.items()}
+                     for script, entries in bonus_overrides.items()
+                     if script in NEWBATTLE_BLOCKS}
+            skipped = sorted(set(bonus_overrides) - set(parsed))
+            result = set_bonus_pools(iso, parsed, apply=True)
+            total_bp = sum(len(v) for v in result.values())
+            print(f"Applied explicit bonus-pool overrides: {total_bp} slot(s) "
+                  f"across {len(result)} dungeon(s).")
+            if skipped:
+                print(f"  note: no bonus-pool block for {skipped} - skipped")
+        except Exception as e:
+            print(f"note: could not apply bonus-pool overrides ({e})")
     present = {script: discs for script, _, discs in dungeons_in_iso(iso)}
     total, warns = 0, []
     for script, dd in spec.items():

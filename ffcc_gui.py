@@ -105,6 +105,10 @@ class RandomizerTab(ttk.Frame):
         self.rand_shops = tk.BooleanVar(value=False)
         self.shop_vars = {base: tk.BooleanVar(value=True) for base in shops.SHOPS}
         self.rand_prices = tk.BooleanVar(value=False)
+        self.rand_bonus = tk.BooleanVar(value=False)
+        self.mog_never_tired = tk.BooleanVar(value=False)
+        self.start_loc = tk.StringVar(value="Tipa")
+        self.skip_mio = tk.BooleanVar(value=False)
 
         # Source ISO (read-only) -> Output ISO (created/written). Choosing a
         # source auto-suggests an output path so the original is never touched.
@@ -178,6 +182,36 @@ class RandomizerTab(ttk.Frame):
                         variable=self.rand_prices).pack(anchor="w", pady=(4, 0))
         self._toggle_shops()
 
+        # --- bonus pools (post-stage rewards, newbattle.cfd - independent file) ---
+        bp = ttk.LabelFrame(self, text="Bonus Pools", padding=8); bp.pack(fill="x", pady=4)
+        ttk.Checkbutton(bp, text="Randomize post-stage bonus rewards (uses the same "
+                        "Mode/Item pool settings above; 13 of 14 dungeons have one - "
+                        "Mount Vellenge has no bonus-pool block in the real game)",
+                        variable=self.rand_bonus).pack(anchor="w")
+
+        # --- gameplay tweaks (Start.dol patches, independent of item rando) ---
+        gt = ttk.LabelFrame(self, text="Gameplay Tweaks", padding=8); gt.pack(fill="x", pady=4)
+        ttk.Checkbutton(gt, text="Mog never gets tired (removes the stamina penalty for "
+                        "running while carrying the chalice)",
+                        variable=self.mog_never_tired).pack(anchor="w")
+        sl = ttk.Frame(gt); sl.pack(fill="x", anchor="w", pady=(6, 0))
+        ttk.Label(sl, text="Starting location:").pack(side="left")
+        self.start_loc_box = ttk.Combobox(sl, state="readonly", width=16,
+                                          values=list(rnd.STARTING_LOCATIONS),
+                                          textvariable=self.start_loc)
+        self.start_loc_box.pack(side="left", padx=4)
+        self.start_loc_box.bind("<<ComboboxSelected>>", self._on_start_loc_change)
+        ttk.Label(sl, text="(only towns with a completable Year 1 are offered)",
+                  foreground="#777").pack(side="left")
+        self.start_loc_warn = ttk.Label(gt, foreground="#a33", wraplength=520, justify="left")
+        self.start_loc_warn.pack(anchor="w", pady=(2, 0))
+        self._update_start_loc_warning()
+        ttk.Checkbutton(gt, text="Skip Meteor Parasite -> Mio questions -> jump straight to Raem",
+                        variable=self.skip_mio).pack(anchor="w", pady=(6, 0))
+        ttk.Label(gt, text="EXPERIMENTAL: not yet confirmed safe by a full playthrough - "
+                  "may leave state the Mio questions would normally set unset.",
+                  foreground="#a33", wraplength=520, justify="left").pack(anchor="w")
+
         btns = ttk.Frame(self); btns.pack(fill="x", pady=4)
         self._buttons = []
         b = ttk.Button(btns, text="List dungeons", command=self.do_list); b.pack(side="left"); self._buttons.append(b)
@@ -197,6 +231,21 @@ class RandomizerTab(ttk.Frame):
         self.log = LogPanel(self); self.log.pack(fill="both", expand=True)
 
     # -- helpers --
+    FIELDS_OF_FUM_WARNING = (
+        "⚠ Fields of Fum: do NOT change your chalice element away from Fire "
+        "before you're ready to cross back. The Miasma Stream on that side is Fire, "
+        "and switching away from Fire (e.g. to Wind in Selepation Cave) can soft-lock "
+        "your only way home, forcing a new save file.")
+
+    def _update_start_loc_warning(self):
+        fum = self.start_loc.get() == "Fields of Fum"
+        self.start_loc_warn.config(text=self.FIELDS_OF_FUM_WARNING if fum else "")
+
+    def _on_start_loc_change(self, _event=None):
+        self._update_start_loc_warning()
+        if self.start_loc.get() == "Fields of Fum":
+            messagebox.showwarning("Soft-lock risk", self.FIELDS_OF_FUM_WARNING)
+
     def _toggle_shops(self):
         state = "normal" if self.rand_shops.get() else "disabled"
         for cb in self._shop_checks:
@@ -264,6 +313,10 @@ class RandomizerTab(ttk.Frame):
         # selected shop bases (None = all) when shop randomization is on
         ns.shops = [b for b, v in self.shop_vars.items() if v.get()] if ns.rand_shops else []
         ns.rand_prices = self.rand_prices.get()
+        ns.rand_bonus = self.rand_bonus.get()
+        ns.mog_never_tired = self.mog_never_tired.get()
+        ns.start_loc = self.start_loc.get()
+        ns.skip_mio = self.skip_mio.get()
         return ns
 
     def _make_copy(self, src, out):
@@ -313,7 +366,11 @@ class RandomizerTab(ttk.Frame):
             found = [d for d in found if d[0] in want]
         if not found:
             self.log.write("[error] no matching dungeons"); return
-        extra = (1 if ns.rand_shops else 0) + (1 if ns.rand_prices else 0)
+        extra = ((1 if ns.rand_shops else 0) + (1 if ns.rand_prices else 0)
+                 + (1 if ns.rand_bonus else 0)
+                 + (1 if ns.mog_never_tired else 0)
+                 + (1 if getattr(ns, "start_loc", "Tipa") != "Tipa" else 0)
+                 + (1 if getattr(ns, "skip_mio", False) else 0))
         self.progress.config(maximum=len(found) + 1 + extra, value=0)
         self.log.write(f"Randomizing {os.path.basename(out)}  "
                        f"(seed {ns.seed}, mode {ns.mode}, rolls {ns.rolls}, "
@@ -374,6 +431,47 @@ class RandomizerTab(ttk.Frame):
                     self._q.put(("log", f"  prices: {n} item price(s) shuffled"))
                 except Exception as e:
                     self._q.put(("log", f"  [error] prices: {e}"))
+                step += 1
+                self._q.put(("value", step))
+            if getattr(ns, "rand_bonus", False):
+                self._q.put(("label", "Randomizing bonus pools"))
+                try:
+                    changes = rnd.randomize_bonus_pools(out, random.Random(ns.seed),
+                                                        mode=ns.mode, pool=pool, apply=True)
+                    self._q.put(("log", f"  bonus pools: {len(changes)} slot(s) "
+                                        f"across {len(rnd.NEWBATTLE_BLOCKS)} dungeon(s)"))
+                except Exception as e:
+                    self._q.put(("log", f"  [error] bonus pools: {e}"))
+                step += 1
+                self._q.put(("value", step))
+            if getattr(ns, "mog_never_tired", False):
+                self._q.put(("label", "Patching Start.dol (Mog never tired)"))
+                try:
+                    rnd.patch_mog_never_tired(out, apply=True)
+                    self._q.put(("log", "  Mog never tired: patched"))
+                except Exception as e:
+                    self._q.put(("log", f"  [error] Mog never tired: {e}"))
+                step += 1
+                self._q.put(("value", step))
+            start_loc = getattr(ns, "start_loc", "Tipa")
+            if start_loc and start_loc != "Tipa":
+                self._q.put(("label", f"Patching starting location ({start_loc})"))
+                try:
+                    rnd.patch_starting_location(out, start_loc, apply=True)
+                    self._q.put(("log", f"  starting location: patched to {start_loc}"))
+                    if start_loc == "Fields of Fum":
+                        self._q.put(("log", f"  {self.FIELDS_OF_FUM_WARNING}"))
+                except Exception as e:
+                    self._q.put(("log", f"  [error] starting location: {e}"))
+                step += 1
+                self._q.put(("value", step))
+            if getattr(ns, "skip_mio", False):
+                self._q.put(("label", "Patching Meteor Parasite -> Raem skip"))
+                try:
+                    rnd.patch_skip_mio_questions(out, apply=True)
+                    self._q.put(("log", "  Mio-questions skip: patched (EXPERIMENTAL)"))
+                except Exception as e:
+                    self._q.put(("log", f"  [error] Mio-questions skip: {e}"))
                 step += 1
                 self._q.put(("value", step))
             spoiler = os.path.splitext(out)[0] + " - spoiler.txt"

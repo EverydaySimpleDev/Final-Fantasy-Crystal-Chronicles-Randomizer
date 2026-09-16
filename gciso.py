@@ -7,6 +7,8 @@ Usage:
     python gciso.py inject  <iso> <disc_path> <file>   # write a file back IN PLACE (same size)
     python gciso.py rebuild <iso> <disc_path> <file> [out_iso]  # replace at ANY size
     python gciso.py extractall <iso> <out_dir> [substring]
+    python gciso.py extract-dol <iso> [out]             # pull the boot executable (main.dol)
+    python gciso.py inject-dol  <iso> <file>            # write it back IN PLACE (same size)
 
 Re-injection is IN-PLACE: the replacement file must be EXACTLY the same size as
 the file already on the disc, so nothing else has to move and the disc's file
@@ -89,6 +91,27 @@ def find_file(files, disc_path):
     return matches
 
 
+def dol_span(f):
+    """Return (offset, size) of the disc's boot executable (main.dol / Start.dol).
+    It is NOT part of the FST - it's a separate blob referenced by boot.bin's
+    dolOffset field at 0x420. Size isn't stored either; it's computed from the
+    DOL's own header (7 text + 11 data section file-offset/size pairs) as the
+    highest (offset + size) among all present sections."""
+    f.seek(0x420)
+    dol_off = struct.unpack(">I", f.read(4))[0]
+    f.seek(dol_off)
+    hdr = f.read(0x100)
+    text_off = struct.unpack(">7I", hdr[0:28])
+    data_off = struct.unpack(">11I", hdr[28:72])
+    text_size = struct.unpack(">7I", hdr[144:172])
+    data_size = struct.unpack(">11I", hdr[172:216])
+    end = 0
+    for off, size in list(zip(text_off, text_size)) + list(zip(data_off, data_size)):
+        if off:
+            end = max(end, off + size)
+    return dol_off, end
+
+
 # ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
@@ -153,6 +176,33 @@ def cmd_inject(iso, disc_path, src):
         f.seek(off)
         f.write(data)
     print(f"Injected {src} -> {path} ({size} bytes) at 0x{off:x} in {os.path.basename(iso)}")
+
+
+def cmd_extract_dol(iso, out=None):
+    with open(iso, "rb") as f:
+        off, size = dol_span(f)
+        f.seek(off)
+        data = f.read(size)
+    if out is None:
+        out = "main.dol"
+    with open(out, "wb") as o:
+        o.write(data)
+    print(f"Extracted main.dol ({size} bytes @ 0x{off:x}) -> {out}")
+
+
+def cmd_inject_dol(iso, src):
+    with open(src, "rb") as s:
+        data = s.read()
+    with open(iso, "r+b") as f:
+        off, size = dol_span(f)
+        if len(data) != size:
+            print(f"SIZE MISMATCH: '{src}' is {len(data)} bytes but the disc's main.dol "
+                  f"is {size} bytes.")
+            print("DOL injection requires identical size - byte-patches only, no size changes.")
+            sys.exit(1)
+        f.seek(off)
+        f.write(data)
+    print(f"Injected {src} -> main.dol ({size} bytes) at 0x{off:x} in {os.path.basename(iso)}")
 
 
 def _fst_entries(data):
@@ -284,6 +334,12 @@ if __name__ == "__main__":
         if len(sys.argv) < 5:
             usage(); sys.exit(1)
         cmd_rebuild(iso, sys.argv[3], sys.argv[4], sys.argv[5] if len(sys.argv) > 5 else None)
+    elif cmd == "extract-dol":
+        cmd_extract_dol(iso, sys.argv[3] if len(sys.argv) > 3 else None)
+    elif cmd == "inject-dol":
+        if len(sys.argv) < 4:
+            usage(); sys.exit(1)
+        cmd_inject_dol(iso, sys.argv[3])
     else:
         usage()
         sys.exit(1)

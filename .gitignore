@@ -5,7 +5,11 @@
 *.chm
 *.tex
 *.chm
+!assets/*.png
+!assets/*.tex
 memory/
 /memory
 build/
 dist/
+__pycache__/
+*.iso
