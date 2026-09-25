@@ -70,6 +70,7 @@ import os
 import random
 import re
 import shutil
+import struct
 import sys
 import tempfile
 
@@ -768,6 +769,183 @@ def skip_mio_questions_status(iso):
                       f"- wrong game version?)")
 
 
+# Skip the opening intro cutscene: a 4-byte patch in world.cft's own STR pool
+# retargets the boot-time script reference from "ff44_1" to "ffcc_5",
+# jumping straight past the cutscene. User-discovered and byte-verified
+# (2026-09-23/24, confirmed working in-game). The STR pool has a duplicate
+# "ff44_1" entry immediately after this one - only this specific slot is
+# patched, leaving the duplicate (and whatever else references it) untouched.
+WORLD_INTRO_SKIP_DISC = "dvd/cft/world.cft"
+WORLD_INTRO_SKIP_OFFSET = 0x596D0
+WORLD_INTRO_SKIP_ORIG = bytes.fromhex("34345f31")     # ASCII "44_1" (of "ff44_1")
+WORLD_INTRO_SKIP_PATCHED = bytes.fromhex("63635f35")  # ASCII "cc_5" (of "ffcc_5")
+
+
+def patch_skip_intro_cutscene(iso, apply=True):
+    """Retarget world.cft's boot-time script reference from `ff44_1` to
+    `ffcc_5`, skipping the opening intro cutscene entirely. Single STR-pool
+    slot patch (4 bytes). Returns True once present (freshly applied or
+    already there); raises if the bytes don't match either the vanilla
+    original or the patched form (wrong game version)."""
+    with open(iso, "r+b" if apply else "rb") as f:
+        _, files = gciso.parse_fst(f)
+        _, off, _ = gciso.find_file(files, WORLD_INTRO_SKIP_DISC)[0]
+        f.seek(off + WORLD_INTRO_SKIP_OFFSET)
+        cur = f.read(4)
+        if cur == WORLD_INTRO_SKIP_PATCHED:
+            return True
+        if cur != WORLD_INTRO_SKIP_ORIG:
+            raise ValueError(f"unexpected bytes at intro-skip site: {cur.hex()} "
+                              f"(expected {WORLD_INTRO_SKIP_ORIG.hex()} - wrong game version?)")
+        if apply:
+            f.seek(off + WORLD_INTRO_SKIP_OFFSET)
+            f.write(WORLD_INTRO_SKIP_PATCHED)
+    return True
+
+
+def skip_intro_cutscene_status(iso):
+    """True if `iso`'s world.cft already has the intro-cutscene-skip patch
+    applied, False if it's still vanilla. Raises the same way
+    `patch_skip_intro_cutscene` does if the bytes are neither (wrong game
+    version)."""
+    tmp = os.path.join(tempfile.gettempdir(), "skipintro_world.cft")
+    _extract(iso, WORLD_INTRO_SKIP_DISC, tmp)
+    data = open(tmp, "rb").read()
+    cur = data[WORLD_INTRO_SKIP_OFFSET:WORLD_INTRO_SKIP_OFFSET + 4]
+    if cur == WORLD_INTRO_SKIP_PATCHED:
+        return True
+    if cur == WORLD_INTRO_SKIP_ORIG:
+        return False
+    raise ValueError(f"unexpected bytes at intro-skip site: {cur.hex()} "
+                      f"(expected {WORLD_INTRO_SKIP_ORIG.hex()} or {WORLD_INTRO_SKIP_PATCHED.hex()} "
+                      f"- wrong game version?)")
+
+
+# mainBasha (world.cft) checks `currentYear >= 2` at two sites before revealing
+# Goblin Wall's road/icon on the world map (dispBgModel calls that show the
+# extra terrain + map marker). Each site is a PUSHI 2 feeding that comparison,
+# immediately after a read of the year global - changing the literal 2 -> 1
+# makes the check always pass (year is never < 1), permanently revealing
+# Goblin Wall from a Year 1 save without touching the year value itself or
+# anything else. Confirmed live in-game (Dolphin memory testing) before being
+# turned into this file patch.
+WORLD_GOBLIN_WALL_VISIBLE_DISC = "dvd/cft/world.cft"
+WORLD_GOBLIN_WALL_VISIBLE_OFFSETS = (0x3DE9D, 0x4193C)
+WORLD_GOBLIN_WALL_VISIBLE_ORIG = bytes.fromhex("00000002")
+WORLD_GOBLIN_WALL_VISIBLE_PATCHED = bytes.fromhex("00000001")
+
+
+def patch_goblin_wall_always_visible(iso, apply=True):
+    """Change both `currentYear >= 2` checks gating Goblin Wall's world-map
+    road/icon reveal to `>= 1`, so it's visible from a Year 1 save. Two 4-byte
+    site patches. Returns True once present (freshly applied or already
+    there); raises if either site's bytes don't match the vanilla original or
+    the patched form (wrong game version)."""
+    with open(iso, "r+b" if apply else "rb") as f:
+        _, files = gciso.parse_fst(f)
+        _, off, _ = gciso.find_file(files, WORLD_GOBLIN_WALL_VISIBLE_DISC)[0]
+        cur = []
+        for site in WORLD_GOBLIN_WALL_VISIBLE_OFFSETS:
+            f.seek(off + site)
+            cur.append(f.read(4))
+        if all(c == WORLD_GOBLIN_WALL_VISIBLE_PATCHED for c in cur):
+            return True
+        for site, c in zip(WORLD_GOBLIN_WALL_VISIBLE_OFFSETS, cur):
+            if c != WORLD_GOBLIN_WALL_VISIBLE_ORIG:
+                raise ValueError(f"unexpected bytes at Goblin-Wall-visible site 0x{site:X}: "
+                                  f"{c.hex()} (expected {WORLD_GOBLIN_WALL_VISIBLE_ORIG.hex()} "
+                                  f"- wrong game version?)")
+        if apply:
+            for site in WORLD_GOBLIN_WALL_VISIBLE_OFFSETS:
+                f.seek(off + site)
+                f.write(WORLD_GOBLIN_WALL_VISIBLE_PATCHED)
+    return True
+
+
+# flashStreamAttrib (world.cft) assigns which element (1=Fire,2=Water,4=Wind,
+# 8=Earth) each of 4 rotating Miasma Stream slots requires, recomputed once
+# per year as `year mod 4`. Each of the 4 (year mod 4) cases writes all 4
+# slots as a permutation of {1,2,4,8} - 16 individual 4-byte int literals
+# total, grouped here as 4 groups of 4 (one group per `year mod 4` case, in
+# slot 0/1/2/3 order). Live-verified in-game: changing a single slot's value
+# in isolation does change which element that stream/road requires, and
+# doesn't affect anything else. Randomizing this is only safe paired with
+# `patch_goblin_wall_always_visible` - see that function's docstring; without
+# it, Fire/Earth aren't obtainable until Year 2 (Goblin Wall's own hotspots),
+# which could strand a Year-1 save needing either of those from the very
+# first stream.
+WORLD_MIASMA_ELEMENTS_DISC = "dvd/cft/world.cft"
+WORLD_MIASMA_ELEMENTS_GROUPS = (
+    (0x180ea, 0x180fb, 0x1810c, 0x1811d),  # year mod 4 == 1
+    (0x18145, 0x18156, 0x18167, 0x18178),  # year mod 4 == 2
+    (0x181a0, 0x181b1, 0x181c2, 0x181d3),  # year mod 4 == 3
+    (0x181fb, 0x1820c, 0x1821d, 0x1822e),  # year mod 4 == 0
+)
+MIASMA_ELEMENTS = (1, 2, 4, 8)  # Fire, Water, Wind, Earth
+
+
+def randomize_miasma_elements(iso, rng, apply=True):
+    """Shuffle which element each of the 4 rotating Miasma Stream slots
+    requires, independently per `year mod 4` case (16 sites total, 4 groups
+    of 4). Returns the list of 4 permutations actually written (one per
+    group, in slot 0-3 order) - always a permutation of MIASMA_ELEMENTS
+    per group, so every element remains reachable via some slot every year."""
+    groups = []
+    for group in WORLD_MIASMA_ELEMENTS_GROUPS:
+        perm = list(MIASMA_ELEMENTS)
+        rng.shuffle(perm)
+        groups.append(perm)
+    if apply:
+        with open(iso, "r+b") as f:
+            _, files = gciso.parse_fst(f)
+            _, off, _ = gciso.find_file(files, WORLD_MIASMA_ELEMENTS_DISC)[0]
+            for group, perm in zip(WORLD_MIASMA_ELEMENTS_GROUPS, groups):
+                for site, value in zip(group, perm):
+                    f.seek(off + site + 1)  # +1: skip the PUSHI opcode byte
+                    f.write(struct.pack(">i", value))
+    return groups
+
+
+def miasma_elements_status(iso):
+    """Current element assigned to each of the 4 slots, per `year mod 4`
+    group (list of 4 lists of 4 ints - Fire=1/Water=2/Wind=4/Earth=8).
+    Raises if any site doesn't hold a value from MIASMA_ELEMENTS (wrong game
+    version)."""
+    tmp = os.path.join(tempfile.gettempdir(), "miasma_world.cft")
+    _extract(iso, WORLD_MIASMA_ELEMENTS_DISC, tmp)
+    data = open(tmp, "rb").read()
+    groups = []
+    for group in WORLD_MIASMA_ELEMENTS_GROUPS:
+        values = []
+        for site in group:
+            v = struct.unpack(">i", data[site + 1:site + 5])[0]
+            if v not in MIASMA_ELEMENTS:
+                raise ValueError(f"unexpected value at Miasma-element site 0x{site:X}: "
+                                  f"{v} (expected one of {MIASMA_ELEMENTS} - wrong game version?)")
+            values.append(v)
+        groups.append(values)
+    return groups
+
+
+def goblin_wall_always_visible_status(iso):
+    """True if `iso`'s world.cft already has the Goblin-Wall-always-visible
+    patch applied, False if it's still vanilla. Raises the same way
+    `patch_goblin_wall_always_visible` does if either site's bytes are
+    neither (wrong game version)."""
+    tmp = os.path.join(tempfile.gettempdir(), "goblinwall_world.cft")
+    _extract(iso, WORLD_GOBLIN_WALL_VISIBLE_DISC, tmp)
+    data = open(tmp, "rb").read()
+    cur = [data[site:site + 4] for site in WORLD_GOBLIN_WALL_VISIBLE_OFFSETS]
+    if all(c == WORLD_GOBLIN_WALL_VISIBLE_PATCHED for c in cur):
+        return True
+    if all(c == WORLD_GOBLIN_WALL_VISIBLE_ORIG for c in cur):
+        return False
+    raise ValueError(f"unexpected bytes at Goblin-Wall-visible sites: "
+                      f"{[c.hex() for c in cur]} (expected all "
+                      f"{WORLD_GOBLIN_WALL_VISIBLE_ORIG.hex()} or all "
+                      f"{WORLD_GOBLIN_WALL_VISIBLE_PATCHED.hex()} - wrong game version?)")
+
+
 def mog_never_tired_status(iso):
     """True if `iso`'s Start.dol already has the Mog-never-tired patch applied,
     False if it's still vanilla. Raises the same way `patch_mog_never_tired`
@@ -783,6 +961,80 @@ def mog_never_tired_status(iso):
     raise ValueError(f"unexpected bytes at Mog-pressure patch site: {cur.hex()} "
                       f"(expected {MOG_PRESSURE_ORIG.hex()} or {MOG_PRESSURE_PATCHED.hex()} "
                       f"- wrong game version?)")
+
+
+# "Development Mode" debug menu unlock (community-documented Action Replay
+# codes, translated to direct Start.dol patches, 2026-09-16): normally hidden
+# behind a retail build-check, this re-enables a real developer debug menu
+# (MUTEKI/invincible, COLCHECK, PARTICLE, CHARA INFO, and more) plus a second-
+# controller input path for it. All 9 sites verified against the retail
+# NTSC-US Start.dol (offsets are DOL-relative, i.e. added to gciso.dol_span()'s
+# own offset, not raw ISO offsets - matches this file's other DOL patches).
+# Once applied: plug in a second GameCube controller (Port 2). On Port 2,
+# A opens the debug menu, B closes it, D-pad Up/Down moves the selection and
+# A/B toggles the highlighted entry. This is a QA test-flag menu (invincibility,
+# collision, particle/shadow toggles, etc.) - it is NOT confirmed to include a
+# working free-roam camera; treat it as an experimental bonus, not a core
+# feature, and expect some entries to do nothing or destabilize the game.
+DEBUG_MENU_PATCHES = [
+    (0x00ed0c, bytes.fromhex("a0040036"), bytes.fromhex("a004005c")),
+    (0x00ed10, bytes.fromhex("540005ad"), bytes.fromhex("540006f7")),
+    (0x0115ec, bytes.fromhex("a0030036"), bytes.fromhex("a003ff0c")),
+    (0x011630, bytes.fromhex("a0630034"), bytes.fromhex("54e0052b")),
+    (0x01165c, bytes.fromhex("54e0077b"), bytes.fromhex("54e00529")),
+    (0x011668, bytes.fromhex("2c000002"), bytes.fromhex("54e0056b")),
+    (0x028104, bytes.fromhex("fc600890"), bytes.fromhex("a003005c")),
+    (0x036508, bytes.fromhex("8003003c"), bytes.fromhex("8003001c")),
+    (0x03787c, bytes.fromhex("a0630036"), bytes.fromhex("a063ff0c")),
+]
+
+
+def patch_debug_menu(iso, apply=True):
+    """Unlock the developer 'Development Mode' debug menu (see DEBUG_MENU_PATCHES
+    above) via 9 verified Start.dol patches. Returns True once all sites are in
+    the patched state (freshly applied or already there); raises if any site's
+    bytes are neither the vanilla original nor the patched form (wrong game
+    version), without writing anything partway."""
+    with open(iso, "r+b" if apply else "rb") as f:
+        off, _ = gciso.dol_span(f)
+        current = []
+        for rel, orig, patched in DEBUG_MENU_PATCHES:
+            f.seek(off + rel)
+            cur = f.read(4)
+            if cur != orig and cur != patched:
+                raise ValueError(f"unexpected bytes at debug-menu patch site 0x{rel:x}: "
+                                  f"{cur.hex()} (expected {orig.hex()} - wrong game version?)")
+            current.append(cur)
+        if all(cur == patched for cur, (_, _, patched) in zip(current, DEBUG_MENU_PATCHES)):
+            return True
+        if apply:
+            for rel, _, patched in DEBUG_MENU_PATCHES:
+                f.seek(off + rel)
+                f.write(patched)
+    return True
+
+
+def debug_menu_status(iso):
+    """True if `iso`'s Start.dol already has the debug-menu patch fully applied,
+    False if it's still fully vanilla. Raises the same way `patch_debug_menu`
+    does if a site is neither (wrong game version, or partially patched)."""
+    with open(iso, "rb") as f:
+        off, _ = gciso.dol_span(f)
+        current = []
+        for rel, orig, patched in DEBUG_MENU_PATCHES:
+            f.seek(off + rel)
+            cur = f.read(4)
+            if cur != orig and cur != patched:
+                raise ValueError(f"unexpected bytes at debug-menu patch site 0x{rel:x}: "
+                                  f"{cur.hex()} (expected {orig.hex()} or {patched.hex()} "
+                                  f"- wrong game version?)")
+            current.append(cur == patched)
+    if all(current):
+        return True
+    if not any(current):
+        return False
+    raise ValueError("debug-menu patch is partially applied (mixed vanilla/patched sites) - "
+                      "ISO may be corrupt")
 
 
 def cmd_shops(iso, args, apply):
@@ -1049,6 +1301,24 @@ def cmd_export(iso, out_path, ref=None):
         data["_skip_mio_questions"] = skip_mio_questions_status(iso)
     except Exception:
         pass  # older/unrecognized cft - leave the key out rather than fail the export
+    try:
+        data["_skip_intro_cutscene"] = skip_intro_cutscene_status(iso)
+    except Exception:
+        pass  # older/unrecognized cft - leave the key out rather than fail the export
+    try:
+        data["_goblin_wall_always_visible"] = goblin_wall_always_visible_status(iso)
+    except Exception:
+        pass  # older/unrecognized cft - leave the key out rather than fail the export
+    data["_randomize_miasma_elements"] = False    # set true to auto-randomize on patch
+    try:
+        data["_miasma_elements"] = miasma_elements_status(iso)
+    except Exception:
+        pass  # older/unrecognized cft - leave the key out rather than fail the export
+    try:
+        data["_enable_debug_menu"] = debug_menu_status(iso)
+    except Exception:
+        pass  # older/unrecognized dol - leave the key out rather than fail the export
+    data["_stage_key_locks"] = False    # set true to create/place keys + apply locks on patch
     data["_randomize_bonus_pools"] = False    # set true to auto-randomize on patch
     try:
         pools = read_bonus_pools(iso)
@@ -1119,6 +1389,319 @@ def _artifacts_per_cycle(sets):
     return pc
 
 
+# --------------------------------------------------------------------------- #
+# Stage-key artifacts: one new key artifact per dungeon, placed in chests only
+# (never monster drops - some enemies can drop several candidate artifacts at
+# once, which would make key delivery unreliable). See
+# Documentation/Artifact-Gated Stage Entrances.md for the in-game gating half
+# of this feature (currently only wired up for Goblin Wall as a proof of
+# concept - this section is the key-creation/placement half, usable
+# independently of how many dungeons the gate check has been extended to).
+#
+# `river` (River Belle Path) is always left unlocked/keyless - it's the
+# game's real starting dungeon. Every other dungeon's key is placed in a
+# handful of chests in the PREVIOUS dungeon of a randomized chain that starts
+# at `river`. A straight-line chain (not a general dependency graph) is what
+# guarantees solvability by construction - no dungeon's key is ever inside
+# that same dungeon, and there's no possibility of a cycle with no entry
+# point, regardless of shuffle order.
+STAGE_KEYS = [
+    ("river", 0xE8, "River Key"),
+    ("gob", 0xE9, "Gob Key"),
+    ("mine", 0xEA, "Mine Key"),
+    ("kinoko", 0xEB, "Shroom Key"),
+    ("ruin", 0xEC, "Tida Key"),
+    ("gigas", 0xED, "Manor Key"),
+    ("lava", 0xEE, "Lava Key"),
+    ("fort", 0xEF, "Fort Key"),
+    ("cave", 0xF0, "Selep Key"),
+    ("water", 0xF1, "Sluice Key"),
+    ("desert", 0xF2, "Lynari Key"),
+    ("swamp", 0xF3, "Conall Key"),
+    ("city", 0xF4, "Rebena Key"),
+    ("meteo", 0xF5, "Vellen Key"),
+]
+STAGE_KEY_DONOR = "Earth Pendant"     # real, valid artifact record to clone from
+STAGE_KEY_ALWAYS_OPEN = "river"       # never locked, never holds a key requirement
+STAGE_KEY_CHESTS_PER_DUNGEON = 3      # redundant copies so one missed chest isn't a softlock
+
+# --- The actual in-game LOCKS, all 13 gated dungeons (see Documentation/
+# Artifact-Gated Stage Entrances.md for the full byte-level writeup of what
+# these edits do and why, using Goblin Wall as the worked example). Each
+# dungeon always needs its OWN fixed key from STAGE_KEYS (`gob` always needs
+# 0xE9 "Gob Key") - only WHERE that key is found is randomized by
+# place_stage_keys(), so these locks stay correct no matter how the chain
+# shuffles.
+#
+# All 13 dungeon entrances share ONE repurposed function (`encountKaido`,
+# freed by neutralizing WM_MoveEnd's only call to it) rather than needing 13
+# separate dead functions. This works because every mainBasha entrance call
+# already pushes a unique per-site "stage id" as its own first argument
+# (a plain vanilla implementation detail, not something we added) - so
+# encountKaido's body can switch on that existing value to tell which
+# dungeon's check applies, then forward the same 8 original arguments to
+# that dungeon's own original MJ_SWING variant if the key is owned.
+WORLD_CFT_DISC = "dvd/cft/world.cft"
+_STAGE_LOCK_ENCOUNTER_CALL_OFF = 0x387C0                      # WM_MoveEnd -> encountKaido
+_STAGE_LOCK_ENCOUNTER_CALL_ORIG = bytes.fromhex("0affff0256")
+_STAGE_LOCK_ENCOUNTER_CALL_PATCHED = bytes.fromhex("0300000000")
+_STAGE_LOCK_ENCOUNTKAIDO_INFO_OFF = 0x33e60                   # encountKaido INFO argCount (4B)
+_STAGE_LOCK_ENCOUNTKAIDO_VAL_ARG0_OFF = 0x33e88               # encountKaido VAL header arg0 (localCount)
+_STAGE_LOCK_ENCOUNTKAIDO_CODE_OFF = 0x33ec0                   # encountKaido CODE start
+
+# (dungeon script, mainBasha call-site file offset, stage id, forward func idx)
+# stage id / forward func idx / call-site bytes all independently verified
+# against a real extracted world.cft before use (not assumed from memory).
+# `lava` (Mount Kilanda) was NOT in the original hand-written proposal list -
+# located this session by its stage id (172) sitting in an otherwise unbroken
+# numeric sequence between Mount Vellenge (171) and Lynari Desert (173);
+# high confidence from the real call-site structure matching every other
+# entry exactly, but the dungeon-name identification itself isn't from an
+# external source the way the other 12 were.
+_STAGE_LOCK_SITES = [
+    ("gob",    0x471D2, 140, 594),
+    ("mine",   0x4884E, 146, 595),
+    ("kinoko", 0x4897F, 147, 595),
+    ("ruin",   0x4A098, 153, 594),
+    ("gigas",  0x4A8CE, 155, 594),
+    ("water",  0x4B1E7, 158, 593),
+    ("cave",   0x4BF82, 162, 595),
+    ("fort",   0x4C825, 164, 593),
+    ("swamp",  0x4D057, 166, 593),
+    ("city",   0x4D6C5, 167, 593),
+    ("meteo",  0x4E1E5, 171, 593),
+    ("lava",   0x4E33A, 172, 593),
+    ("desert", 0x4E4B5, 173, 595),
+]
+
+# Start.dol: checkCaravanItem's compiled inventory search only scanned 8
+# passes x 8 items = 64 slots (kInventoryCapacity) - structurally too short to
+# ever see a permanent artifact (which start at slot 64). One instruction,
+# main.dol file offset 0x913fc: li r0,8 -> li r0,20 (20*8=160, covering every
+# regular item AND all 96 permanent artifact slots, safely within the array's
+# own 164-slot bound).
+_STAGE_LOCK_DOL_OFF = 0x913fc
+_STAGE_LOCK_DOL_ORIG = bytes.fromhex("38000008")
+_STAGE_LOCK_DOL_PATCHED = bytes.fromhex("38000014")
+
+
+def _stage_lock_dispatcher_body(cases, check_func_idx=234):
+    """Build encountKaido's replacement CFlat bytecode as a switch over the
+    incoming local[0] ("stage id", see the module comment above `_STAGE_LOCK_
+    SITES`). `cases`: [(stage_id, item_id, forward_func_idx), ...]. For each,
+    if local[0]==stage_id: check item_id via the native checkCaravanItem
+    (func idx `check_func_idx`), forward all 8 original arguments to
+    forward_func_idx if owned, else silently deny. Falls through to a silent
+    deny if local[0] doesn't match any case (should never happen - every
+    redirected mainBasha call site pushes a stage id covered by exactly one
+    case here)."""
+    def op1(b):
+        return bytes([b])
+
+    def op5(b, arg):
+        return bytes([b]) + struct.pack(">I", arg & 0xffffffff)
+
+    prog = bytearray()
+    for stage_id, item_id, forward_func_idx in cases:
+        prog += op5(0x00, 1)                                   # GET local[0]
+        prog += op5(0x03, stage_id)                            # PUSHI stage_id
+        prog += op1(0x2c)                                      # int ==
+        jz_next = len(prog)
+        prog += op5(0x08, 0)                                   # JZ <next case> (patched below)
+
+        prog += op5(0x03, 0)                                   # PUSHI 0   caravanIndex
+        prog += op5(0x03, 2)                                   # PUSHI 2   flags
+        prog += op5(0x03, item_id)                             # PUSHI itemId
+        prog += op5(0x0a, (0xFFFF << 16) | check_func_idx)      # CALL checkCaravanItem
+        prog += op5(0x03, 2)
+        prog += op1(0x2c)
+        jz_deny = len(prog)
+        prog += op5(0x08, 0)                                   # JZ <deny> (patched below)
+        for i in range(8):
+            prog += op5(0x00, (i << 8) | 1)                    # GET local[i]
+        prog += op5(0x0a, (0xFFFF << 16) | forward_func_idx)    # CALL <this dungeon's MJ_SWING variant>
+        prog += op1(0x3c)                                      # RET
+        deny_off = len(prog)
+        prog += op1(0x3f)                                      # PUSH0
+        prog += op1(0x3c)                                      # RET
+        prog[jz_deny:jz_deny + 5] = op5(0x08, deny_off)
+
+        next_case_off = len(prog)
+        prog[jz_next:jz_next + 5] = op5(0x08, next_case_off)
+    prog += op1(0x3f)   # default (should never be reached): silent deny
+    prog += op1(0x3c)
+    return bytes(prog)
+
+
+def patch_stage_key_locks(iso, apply=True, sites=None):
+    """Apply the in-game locks for every dungeon in `sites` (default: all 13
+    in _STAGE_LOCK_SITES). Redirects each dungeon's own mainBasha entrance
+    call to the shared encountKaido dispatcher, rewrites encountKaido's body
+    to the switch built by _stage_lock_dispatcher_body(), and applies the one
+    Start.dol fix needed for the check to see permanent artifacts at all.
+    Same-size edits throughout - no ISO resizing needed. Returns True once
+    present (freshly applied or already there); raises if any site's bytes
+    are neither vanilla nor already-patched (wrong game version, a
+    conflicting prior edit, or an already-modified `mainBasha`)."""
+    sites = sites if sites is not None else _STAGE_LOCK_SITES
+    key_by_dungeon = {s: kid for s, kid, _ in STAGE_KEYS}
+    cases = [(stage_id, key_by_dungeon[script], forward_idx)
+             for script, _, stage_id, forward_idx in sites]
+    body = _stage_lock_dispatcher_body(cases)
+    if len(body) > 18000:
+        raise ValueError(f"dispatcher body ({len(body)}B) exceeds encountKaido's "
+                          f"18000B budget - split across more than one repurposed function")
+
+    tmp = os.path.join(tempfile.gettempdir(), "stagelock_world.cft")
+    _extract(iso, WORLD_CFT_DISC, tmp)
+    data = bytearray(open(tmp, "rb").read())
+
+    site_patched = {}
+    for script, call_off, _, forward_idx in sites:
+        cur = bytes(data[call_off:call_off + 5])
+        patched = bytes([0x0a]) + struct.pack(">I", (0xFFFF << 16) | 598)
+        orig = bytes([0x0a]) + struct.pack(">I", (0xFFFF << 16) | forward_idx)
+        if cur == patched:
+            site_patched[script] = True
+        elif cur == orig:
+            site_patched[script] = False
+        else:
+            raise ValueError(f"{script}: unexpected bytes at call site 0x{call_off:x}: "
+                              f"{cur.hex()} (expected {orig.hex()} or {patched.hex()} - "
+                              f"wrong game version, or a conflicting prior edit?)")
+
+    if not all(site_patched.values()):
+        cur = data[_STAGE_LOCK_ENCOUNTER_CALL_OFF:_STAGE_LOCK_ENCOUNTER_CALL_OFF + 5]
+        if cur not in (_STAGE_LOCK_ENCOUNTER_CALL_ORIG, _STAGE_LOCK_ENCOUNTER_CALL_PATCHED):
+            raise ValueError(f"unexpected bytes at encounter-call site: {cur.hex()}")
+        if apply:
+            data[_STAGE_LOCK_ENCOUNTER_CALL_OFF:_STAGE_LOCK_ENCOUNTER_CALL_OFF + 5] = \
+                _STAGE_LOCK_ENCOUNTER_CALL_PATCHED
+            data[_STAGE_LOCK_ENCOUNTKAIDO_INFO_OFF:_STAGE_LOCK_ENCOUNTKAIDO_INFO_OFF + 4] = \
+                struct.pack(">I", 8)
+            data[_STAGE_LOCK_ENCOUNTKAIDO_VAL_ARG0_OFF:_STAGE_LOCK_ENCOUNTKAIDO_VAL_ARG0_OFF + 4] = \
+                struct.pack(">I", 8)
+            data[_STAGE_LOCK_ENCOUNTKAIDO_CODE_OFF:_STAGE_LOCK_ENCOUNTKAIDO_CODE_OFF + len(body)] = body
+            for script, call_off, _, _fidx in sites:
+                if not site_patched[script]:
+                    data[call_off:call_off + 5] = bytes([0x0a]) + struct.pack(">I", (0xFFFF << 16) | 598)
+            open(tmp, "wb").write(data)
+            with open(iso, "r+b") as f:
+                _, files = gciso.parse_fst(f)
+                _, off, _ = gciso.find_file(files, WORLD_CFT_DISC)[0]
+                f.seek(off)
+                f.write(data)
+
+    with open(iso, "r+b" if apply else "rb") as f:
+        off, _ = gciso.dol_span(f)
+        f.seek(off + _STAGE_LOCK_DOL_OFF)
+        cur = f.read(4)
+        if cur != _STAGE_LOCK_DOL_PATCHED:
+            if cur != _STAGE_LOCK_DOL_ORIG:
+                raise ValueError(f"unexpected bytes at Start.dol offset 0x{_STAGE_LOCK_DOL_OFF:x}: "
+                                  f"{cur.hex()} (expected {_STAGE_LOCK_DOL_ORIG.hex()})")
+            if apply:
+                f.seek(off + _STAGE_LOCK_DOL_OFF)
+                f.write(_STAGE_LOCK_DOL_PATCHED)
+    return True
+
+
+def randomize_stage_key_chain(rng):
+    """Return a random permutation of all 14 dungeon scripts with
+    `STAGE_KEY_ALWAYS_OPEN` fixed first. For i>=1, chain[i]'s key must be
+    placed in chain[i-1]'s chests (chain[0] needs no key). Guaranteed
+    acyclic/solvable for ANY shuffle of the remaining 13, since it's a single
+    straight chain rather than an arbitrary dependency graph."""
+    others = [s for s, _, _ in STAGE_KEYS if s != STAGE_KEY_ALWAYS_OPEN]
+    rng.shuffle(others)
+    return [STAGE_KEY_ALWAYS_OPEN] + others
+
+
+def stage_key_requirements(chain):
+    """{dungeon_script: (key_id, key_name)} for every dungeon that needs a
+    key to enter (all except chain[0], the always-open one)."""
+    by_script = {s: (kid, name) for s, kid, name in STAGE_KEYS}
+    return {chain[i]: by_script[chain[i]] for i in range(1, len(chain))}
+
+
+STAGE_KEY_DESC_TEXT = {
+    "mine": "Cathurige Key",     # shortened (1 char short of even "Cathuriges Key") - needed to fit
+    "lava": "Kilanda Key",       # dropped "Mount " - needed to fit
+    "cave": "Selepation Key",    # dropped "Cave" - needed to fit
+    "swamp": "Conall Key",       # dropped "Curach" - needed to fit
+}
+# For a few IDs, the nearest "Help Message" placeholder(s) don't have enough
+# spare room for set_item_description()'s default nearby auto-search - found
+# by trial against a real ISO's c_system.cfd, not guessed. Explicit farther
+# donor slot per Documentation/Adding Custom Items and Artifacts.md's own
+# description recipe.
+STAGE_KEY_DESC_DONOR = {
+    "lava": 0xFB,
+    "cave": 0xFC,   # distinct from lava's 0xFB - sharing one donor starved the second edit
+    "mine": 0x110,
+    "swamp": 0x162,
+}
+
+
+def create_stage_key_items(iso, donor=STAGE_KEY_DONOR):
+    """Create all 14 stage-key artifacts as real, valid items (cloned from
+    `donor`). An empty-placeholder artifact record silently fails to drop
+    from chests at all - see Documentation/Artifact-Gated Stage
+    Entrances.md, step 1, for why cloning a real donor is required rather
+    than just naming the slot. Each also gets an in-game description naming
+    the dungeon it unlocks."""
+    import customitem
+    friendly = dict(lootcft.DUNGEONS)
+    for script, key_id, name in STAGE_KEYS:
+        customitem.add_custom_item(iso, key_id, name, donor, article="the")
+        desc = STAGE_KEY_DESC_TEXT.get(script, f"{friendly.get(script, script)} Key")
+        customitem.set_item_description(iso, key_id, desc,
+                                         donor_id=STAGE_KEY_DESC_DONOR.get(script))
+
+
+def place_stage_keys(iso, chain, rng, chests_per_dungeon=STAGE_KEY_CHESTS_PER_DUNGEON):
+    """Place each dungeon's required key into `chests_per_dungeon` chests
+    (chosen at random, all 7 cycle-slots of each so the key doesn't depend on
+    which year the player finds it in) of the PREVIOUS dungeon in `chain` -
+    only ever the dungeon the player must already be ABLE to enter, never the
+    gated dungeon itself. Chests only, never monster/spawn drop tables.
+    Returns {dungeon_script: [chest_set_index, ...]} actually used."""
+    by_script = dict((s, kid) for s, kid, _ in STAGE_KEYS)
+    discs_by_script = {script: discs for script, _, discs in dungeons_in_iso(iso)}
+    placements = {}
+    for i in range(1, len(chain)):
+        source_script = chain[i - 1]
+        needed_key = by_script[chain[i]]
+        discs = discs_by_script.get(source_script)
+        if not discs:
+            print(f"WARNING: no area files found for {source_script!r} in this ISO - "
+                  f"{chain[i]!r}'s key could not be placed")
+            continue
+        disc = discs[0]
+        tmp = os.path.join(tempfile.gettempdir(), "stagekey_" + os.path.basename(disc))
+        size = _extract(iso, disc, tmp)
+        sets = lootcft.find_sets(tmp, valid=lootcft._valid_item)
+        if not sets:
+            print(f"WARNING: no chests found in {disc!r} - {chain[i]!r}'s key could not be placed")
+            continue
+        chosen_idx = sorted(rng.sample(range(len(sets)), k=min(chests_per_dungeon, len(sets))))
+        edits = {}
+        for si in chosen_idx:
+            for off, _ in sets[si]:
+                edits[off] = needed_key
+        lootcft.apply_edits(tmp, edits)
+        data = open(tmp, "rb").read()
+        if len(data) != size:
+            raise ValueError(f"{disc}: size changed, refusing to inject")
+        with open(iso, "r+b") as f:
+            _, files = gciso.parse_fst(f)
+            _, off, _ = gciso.find_file(files, disc)[0]
+            f.seek(off)
+            f.write(data)
+        placements[chain[i]] = chosen_idx
+    return placements
+
+
 def cmd_patch(iso, json_path, max_artifacts=4):
     """Apply a chest JSON to the ISO: set each level/set/cycle to the given item.
     Warns if the result exceeds `max_artifacts` artifacts per cycle (carry cap)."""
@@ -1157,6 +1740,50 @@ def cmd_patch(iso, json_path, max_artifacts=4):
             print("Applied Meteor Parasite -> Raem skip patch (Mio questions skipped).")
         except Exception as e:
             print(f"note: could not apply Mio-questions-skip patch ({e})")
+    if spec.get("_skip_intro_cutscene"):
+        try:
+            patch_skip_intro_cutscene(iso, apply=True)
+            print("Applied intro-cutscene-skip patch.")
+        except Exception as e:
+            print(f"note: could not apply intro-cutscene-skip patch ({e})")
+    if spec.get("_goblin_wall_always_visible"):
+        try:
+            patch_goblin_wall_always_visible(iso, apply=True)
+            print("Applied Goblin-Wall-always-visible patch.")
+        except Exception as e:
+            print(f"note: could not apply Goblin-Wall-always-visible patch ({e})")
+    if spec.get("_randomize_miasma_elements"):
+        if not spec.get("_goblin_wall_always_visible"):
+            print("WARNING: _randomize_miasma_elements requires _goblin_wall_always_visible "
+                  "to also be set (it's what guarantees Fire and Earth are obtainable from "
+                  "Year 1 - without it, a shuffled stream could demand an element you have no "
+                  "way to get yet). Skipping Miasma Stream randomization.")
+        else:
+            try:
+                groups = randomize_miasma_elements(iso, random.Random(), apply=True)
+                print(f"Randomized Miasma Stream elements (4 groups of 4): {groups}")
+            except Exception as e:
+                print(f"note: could not randomize Miasma Stream elements ({e})")
+    if spec.get("_stage_key_locks"):
+        try:
+            create_stage_key_items(iso)
+            chain = randomize_stage_key_chain(random.Random())
+            reqs = stage_key_requirements(chain)
+            placements = place_stage_keys(iso, chain, random.Random())
+            patch_stage_key_locks(iso, apply=True)
+            print("Stage-key artifacts: created all 14, placed via a randomized "
+                  f"solvable chain starting at {STAGE_KEY_ALWAYS_OPEN!r}: {chain}")
+            print("  All 13 gated dungeons now check for their key on entry.")
+        except Exception as e:
+            print(f"note: could not apply stage-key locks ({e})")
+    if spec.get("_enable_debug_menu"):
+        try:
+            patch_debug_menu(iso, apply=True)
+            print("Applied debug-menu unlock patch. Plug in a second GameCube "
+                  "controller (Port 2): A opens the debug menu, B closes it, "
+                  "D-pad Up/Down selects an entry, A/B toggles it.")
+        except Exception as e:
+            print(f"note: could not apply debug-menu unlock patch ({e})")
     if spec.get("_randomize_bonus_pools"):
         try:
             n = len(randomize_bonus_pools(iso, random.Random(), mode="cross",

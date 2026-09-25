@@ -39,6 +39,52 @@ import ffcc_items
 DUNGEONS = lootcft.DUNGEONS                      # [(script, friendly)]
 POOLS = ["all", "artifact", "magicite", "consumable", "recipe"]
 
+# Warm parchment/gold palette (evoking FFCC's world-map/caravan look) instead
+# of Tk's default battleship gray. Module-level so both the ttk style setup
+# and the few plain (non-ttk) widgets below - the log's ScrolledText, the
+# ScrollableTab canvases - can share the exact same colors.
+THEME_BG = "#f3e8d0"        # main parchment background
+THEME_FIELD_BG = "#fffdf6"  # entries/text areas - slightly lighter, readable
+THEME_TEXT = "#3b2a1a"      # warm dark brown instead of pure black
+THEME_ACCENT = "#7a4a1e"    # borders / labelframe titles
+THEME_GOLD = "#c9962c"      # selected tab / active accents
+THEME_BTN_BG = "#e8d3a0"
+THEME_BTN_ACTIVE = "#d9bd78"
+
+
+def apply_theme(root):
+    """Recolor every ttk widget app-wide (global effect - covers tabs defined
+    in other modules too, e.g. chesteditor.App, with no changes needed there)
+    to the warm palette above, replacing Tk's default gray theme."""
+    style = ttk.Style(root)
+    try:
+        style.theme_use("clam")   # base theme that actually honors custom colors
+    except tk.TclError:
+        pass
+    root.configure(background=THEME_BG)
+    style.configure(".", background=THEME_BG, foreground=THEME_TEXT)
+    for cls in ("TFrame", "TLabelframe", "TLabel", "TCheckbutton", "TRadiobutton",
+                "TNotebook", "TPanedwindow"):
+        style.configure(cls, background=THEME_BG, foreground=THEME_TEXT)
+    style.map("TCheckbutton", background=[("active", THEME_BG)])
+    style.map("TRadiobutton", background=[("active", THEME_BG)])
+    style.configure("TLabelframe.Label", background=THEME_BG, foreground=THEME_ACCENT,
+                     font=("Segoe UI", 9, "bold"))
+    style.configure("TButton", background=THEME_BTN_BG, foreground=THEME_TEXT,
+                     bordercolor=THEME_ACCENT, focuscolor=THEME_GOLD)
+    style.map("TButton", background=[("active", THEME_BTN_ACTIVE), ("pressed", THEME_GOLD)])
+    style.configure("TEntry", fieldbackground=THEME_FIELD_BG, foreground=THEME_TEXT)
+    style.configure("TCombobox", fieldbackground=THEME_FIELD_BG, foreground=THEME_TEXT)
+    style.map("TCombobox", fieldbackground=[("readonly", THEME_FIELD_BG)])
+    style.configure("TNotebook.Tab", background=THEME_BTN_BG, foreground=THEME_TEXT,
+                     padding=(10, 4))
+    style.map("TNotebook.Tab", background=[("selected", THEME_GOLD)],
+              foreground=[("selected", THEME_FIELD_BG)])
+    style.configure("Vertical.TScrollbar", background=THEME_BTN_BG, troughcolor=THEME_BG,
+                     bordercolor=THEME_ACCENT)
+    style.configure("Horizontal.TScrollbar", background=THEME_BTN_BG, troughcolor=THEME_BG,
+                     bordercolor=THEME_ACCENT)
+
 
 def run_capture(fn, *args, **kwargs):
     """Call fn with stdout captured; return whatever it printed (+ errors)."""
@@ -67,7 +113,9 @@ class LogPanel(ttk.Frame):
         bar = ttk.Frame(self); bar.pack(fill="x")
         ttk.Label(bar, text="Output:").pack(side="left")
         ttk.Button(bar, text="Clear", command=self.clear).pack(side="right")
-        self.txt = scrolledtext.ScrolledText(self, height=14, wrap="word")
+        self.txt = scrolledtext.ScrolledText(self, height=14, wrap="word",
+                                              background=THEME_FIELD_BG, foreground=THEME_TEXT,
+                                              insertbackground=THEME_TEXT, relief="flat")
         self.txt.pack(fill="both", expand=True)
 
     def clear(self):
@@ -83,6 +131,43 @@ def open_file(path):
         os.startfile(path)            # Windows
     except Exception:
         pass
+
+
+class ScrollableTab(ttk.Frame):
+    """Wraps `inner_cls(<parent>, *args, **kwargs)` in a vertically
+    scrollable canvas, so a tab whose content is taller than the window
+    gets a scrollbar instead of being clipped/hidden below the fold. The
+    inner tab class needs no changes - it's just built with this frame's
+    internal canvas as its parent instead of the notebook directly."""
+    def __init__(self, master, inner_cls, *args, **kwargs):
+        super().__init__(master)
+        canvas = tk.Canvas(self, highlightthickness=0, background=THEME_BG)
+        vbar = ttk.Scrollbar(self, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=vbar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        vbar.pack(side="right", fill="y")
+
+        self.inner = inner_cls(canvas, *args, **kwargs)
+        win = canvas.create_window((0, 0), window=self.inner, anchor="nw")
+
+        def _on_inner_configure(_event):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+        self.inner.bind("<Configure>", _on_inner_configure)
+
+        def _on_canvas_configure(event):
+            canvas.itemconfig(win, width=event.width)
+        canvas.bind("<Configure>", _on_canvas_configure)
+
+        # Mouse wheel only scrolls this canvas while the pointer is over it,
+        # so it doesn't hijack scrolling in the log panel or other widgets.
+        def _on_wheel(event):
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        def _bind_wheel(_event):
+            canvas.bind_all("<MouseWheel>", _on_wheel)
+        def _unbind_wheel(_event):
+            canvas.unbind_all("<MouseWheel>")
+        canvas.bind("<Enter>", _bind_wheel)
+        canvas.bind("<Leave>", _unbind_wheel)
 
 
 # ---------------------------------------------------------------------------
@@ -109,6 +194,11 @@ class RandomizerTab(ttk.Frame):
         self.mog_never_tired = tk.BooleanVar(value=False)
         self.start_loc = tk.StringVar(value="Tipa")
         self.skip_mio = tk.BooleanVar(value=False)
+        self.skip_intro = tk.BooleanVar(value=False)
+        self.goblin_wall_always_visible = tk.BooleanVar(value=False)
+        self.randomize_miasma_elements = tk.BooleanVar(value=False)
+        self.stage_key_locks = tk.BooleanVar(value=False)
+        self.debug_menu = tk.BooleanVar(value=False)
 
         # Source ISO (read-only) -> Output ISO (created/written). Choosing a
         # source auto-suggests an output path so the original is never touched.
@@ -210,6 +300,35 @@ class RandomizerTab(ttk.Frame):
                         variable=self.skip_mio).pack(anchor="w", pady=(6, 0))
         ttk.Label(gt, text="EXPERIMENTAL: not yet confirmed safe by a full playthrough - "
                   "may leave state the Mio questions would normally set unset.",
+                  foreground="#a33", wraplength=520, justify="left").pack(anchor="w")
+        ttk.Checkbutton(gt, text="Skip the opening intro cutscene",
+                        variable=self.skip_intro).pack(anchor="w", pady=(6, 0))
+        ttk.Checkbutton(gt, text="Show Goblin Wall on the world map from Year 1",
+                        variable=self.goblin_wall_always_visible).pack(anchor="w", pady=(6, 0))
+        ttk.Checkbutton(gt, text="Randomize Miasma Stream elements per seed",
+                        variable=self.randomize_miasma_elements).pack(anchor="w", pady=(6, 0))
+        ttk.Label(gt, text="EXPERIMENTAL: REQUIRES \"Show Goblin Wall...\" above to also be "
+                  "checked - that's what guarantees every element is obtainable from Year 1, "
+                  "so a shuffled stream can never demand one you have no way to get yet. "
+                  "Randomization will be skipped (with a log message) if the other box isn't "
+                  "checked too.",
+                  foreground="#a33", wraplength=520, justify="left").pack(anchor="w")
+        ttk.Checkbutton(gt, text="Lock stages behind key artifacts (per dungeon)",
+                        variable=self.stage_key_locks).pack(anchor="w", pady=(6, 0))
+        ttk.Label(gt, text="EXPERIMENTAL: creates 14 new key artifacts (one per dungeon) "
+                  "and hides each one in a handful of chests in a randomized, always-"
+                  "solvable chain of dungeons - River Belle Path always stays open, and "
+                  "no dungeon's key is ever placed inside that same dungeon. All 13 "
+                  "gated dungeons now check for their key on entry, but this hasn't yet "
+                  "been confirmed by a full in-game playthrough of every dungeon.",
+                  foreground="#a33", wraplength=520, justify="left").pack(anchor="w")
+        ttk.Checkbutton(gt, text="Enable developer debug menu (Development Mode)",
+                        variable=self.debug_menu).pack(anchor="w", pady=(6, 0))
+        ttk.Label(gt, text="Plug in a SECOND GameCube controller (Port 2) to use it: "
+                  "A opens the debug menu, B closes it, D-pad Up/Down selects an entry, "
+                  "A/B toggles it. EXPERIMENTAL QA menu (invincibility, collision, "
+                  "particle/shadow toggles, etc.) - some entries may do nothing or "
+                  "destabilize the game.",
                   foreground="#a33", wraplength=520, justify="left").pack(anchor="w")
 
         btns = ttk.Frame(self); btns.pack(fill="x", pady=4)
@@ -317,6 +436,11 @@ class RandomizerTab(ttk.Frame):
         ns.mog_never_tired = self.mog_never_tired.get()
         ns.start_loc = self.start_loc.get()
         ns.skip_mio = self.skip_mio.get()
+        ns.skip_intro = self.skip_intro.get()
+        ns.goblin_wall_always_visible = self.goblin_wall_always_visible.get()
+        ns.randomize_miasma_elements = self.randomize_miasma_elements.get()
+        ns.stage_key_locks = self.stage_key_locks.get()
+        ns.debug_menu = self.debug_menu.get()
         return ns
 
     def _make_copy(self, src, out):
@@ -370,7 +494,12 @@ class RandomizerTab(ttk.Frame):
                  + (1 if ns.rand_bonus else 0)
                  + (1 if ns.mog_never_tired else 0)
                  + (1 if getattr(ns, "start_loc", "Tipa") != "Tipa" else 0)
-                 + (1 if getattr(ns, "skip_mio", False) else 0))
+                 + (1 if getattr(ns, "skip_mio", False) else 0)
+                 + (1 if getattr(ns, "skip_intro", False) else 0)
+                 + (1 if getattr(ns, "goblin_wall_always_visible", False) else 0)
+                 + (1 if getattr(ns, "randomize_miasma_elements", False) else 0)
+                 + (1 if getattr(ns, "stage_key_locks", False) else 0)
+                 + (1 if getattr(ns, "debug_menu", False) else 0))
         self.progress.config(maximum=len(found) + 1 + extra, value=0)
         self.log.write(f"Randomizing {os.path.basename(out)}  "
                        f"(seed {ns.seed}, mode {ns.mode}, rolls {ns.rolls}, "
@@ -472,6 +601,63 @@ class RandomizerTab(ttk.Frame):
                     self._q.put(("log", "  Mio-questions skip: patched (EXPERIMENTAL)"))
                 except Exception as e:
                     self._q.put(("log", f"  [error] Mio-questions skip: {e}"))
+                step += 1
+                self._q.put(("value", step))
+            if getattr(ns, "skip_intro", False):
+                self._q.put(("label", "Patching intro-cutscene skip"))
+                try:
+                    rnd.patch_skip_intro_cutscene(out, apply=True)
+                    self._q.put(("log", "  intro cutscene skip: patched"))
+                except Exception as e:
+                    self._q.put(("log", f"  [error] intro cutscene skip: {e}"))
+                step += 1
+                self._q.put(("value", step))
+            if getattr(ns, "goblin_wall_always_visible", False):
+                self._q.put(("label", "Patching Goblin Wall always-visible"))
+                try:
+                    rnd.patch_goblin_wall_always_visible(out, apply=True)
+                    self._q.put(("log", "  Goblin Wall always visible: patched"))
+                except Exception as e:
+                    self._q.put(("log", f"  [error] Goblin Wall always visible: {e}"))
+                step += 1
+                self._q.put(("value", step))
+            if getattr(ns, "randomize_miasma_elements", False):
+                if not getattr(ns, "goblin_wall_always_visible", False):
+                    self._q.put(("log", "  [skipped] Randomize Miasma Stream elements: "
+                                        "also requires \"Show Goblin Wall...\" to be checked "
+                                        "(guarantees every element is obtainable from Year 1) "
+                                        "- check both boxes and re-run."))
+                else:
+                    self._q.put(("label", "Patching Miasma Stream elements"))
+                    try:
+                        groups = rnd.randomize_miasma_elements(out, random.Random(), apply=True)
+                        self._q.put(("log", f"  Miasma Stream elements: randomized {groups}"))
+                    except Exception as e:
+                        self._q.put(("log", f"  [error] Miasma Stream elements: {e}"))
+                step += 1
+                self._q.put(("value", step))
+            if getattr(ns, "stage_key_locks", False):
+                self._q.put(("label", "Patching stage-key locks"))
+                try:
+                    rnd.create_stage_key_items(out)
+                    chain = rnd.randomize_stage_key_chain(random.Random())
+                    rnd.place_stage_keys(out, chain, random.Random())
+                    rnd.patch_stage_key_locks(out, apply=True)
+                    self._q.put(("log", f"  stage-key artifacts: created 14, placed via chain {chain} "
+                                        "- all 13 gated dungeons now check for their key on entry"))
+                except Exception as e:
+                    self._q.put(("log", f"  [error] stage-key locks: {e}"))
+                step += 1
+                self._q.put(("value", step))
+            if getattr(ns, "debug_menu", False):
+                self._q.put(("label", "Patching Start.dol (debug menu unlock)"))
+                try:
+                    rnd.patch_debug_menu(out, apply=True)
+                    self._q.put(("log", "  debug menu: patched (EXPERIMENTAL - use a "
+                                        "second controller on Port 2: A=open, B=close, "
+                                        "D-pad Up/Down=select, A/B=toggle entry)"))
+                except Exception as e:
+                    self._q.put(("log", f"  [error] debug menu: {e}"))
                 step += 1
                 self._q.put(("value", step))
             spoiler = os.path.splitext(out)[0] + " - spoiler.txt"
@@ -697,6 +883,51 @@ RANDOMIZER
   Export JSON / Patch from JSON let you hand-edit exact contents: Export a
      template from the source -> edit the .json -> Patch (writes the output ISO,
      never the source).
+
+GAMEPLAY TWEAKS (Randomizer tab)
+  A few independent, single-purpose toggles - mix and match freely, and
+  independent of chest/item randomization:
+    Mog never gets tired  - removes the stamina penalty for running while
+       carrying the chalice.
+    Starting location  - start a new game somewhere other than Tipa (only
+       towns where Year 1 is completable are offered).
+    Skip Meteor Parasite -> Mio questions -> Raem  - EXPERIMENTAL, not yet
+       confirmed safe across a full playthrough.
+    Skip the opening intro cutscene  - jumps straight past it on a new game.
+    Show Goblin Wall on the world map from Year 1  - reveals its road/icon
+       from the start instead of waiting for the Year 1->2 transition.
+    Randomize Miasma Stream elements  - EXPERIMENTAL, shuffles which element
+       each of the 4 rotating streams needs per year. REQUIRES "Show Goblin
+       Wall..." above to also be checked (guarantees every element is
+       obtainable from Year 1) - skipped with a log warning otherwise.
+    Randomize post-stage bonus rewards (Bonus Pools section)  - randomizes
+       the end-of-dungeon score-reward pool, separate from chests/enemy
+       drops. 13 of 14 dungeons have one (Mount Vellenge has none in the
+       real game).
+    Lock stages behind key artifacts  - EXPERIMENTAL, creates 14 new key
+       artifacts (one per dungeon) placed via a randomized, always-solvable
+       chest chain (River Belle Path always stays open; chests only, never
+       enemy drops; no dungeon's key is ever in that same dungeon). 6 of the
+       13 gated dungeons (Goblin Wall, Veo Lu Sluice, Moschet Manor, Tida,
+       Mine of Cathuriges, Mushroom Forest) are confirmed working in-game;
+       the other 7 (Selepation Cave, Daemon's Court, Conall Curach, Rebena Te
+       Ra, Mount Vellenge, Mount Kilanda, Lynari Desert) are only statically
+       verified so far, NOT yet confirmed in-game - treat as unvalidated
+       until spot-checked.
+       The 14 keys: River/Gob/Mine/Shroom/Tida/Manor/Lava/Fort/Selep/
+       Sluice/Lynari/Conall/Rebena/Vellen Key, unlocking River Belle Path
+       (never actually locked)/Goblin Wall/Mine of Cathuriges/Mushroom
+       Forest/Tida/Moschet Manor/Mount Kilanda/Daemon's Court/Selepation
+       Cave/Veo Lu Sluice/Lynari Desert/Conall Curach/Rebena Te Ra/Mount
+       Vellenge respectively - see the README for the full name/
+       description table.
+    Enable developer debug menu  - EXPERIMENTAL, unlocks a hidden QA menu.
+       Needs a second GameCube controller on Port 2 (A=open, B=close, D-pad
+       Up/Down=select, A/B=toggle). Some entries may do nothing or
+       destabilize the game.
+  Each toggle round-trips through Export JSON / Patch from JSON the same way
+  as chest data, under its own `_`-prefixed key - export to see the exact
+  key names and current state.
 
 CHEST EDITOR
   Open ISO, pick a dungeon, Load. Each row is a chest; the three columns are
@@ -1086,25 +1317,46 @@ class APPatchTab(ttk.Frame):
 def main():
     root = tk.Tk()
     root.title("FFCC Modding Toolkit")
-    root.geometry("900x680")
+    root.geometry("900x820")
+    root.minsize(700, 480)
+    assets_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
+    try:
+        root.iconbitmap(os.path.join(assets_dir, "icon.ico"))
+    except Exception:
+        pass  # missing/unsupported icon file - fall back to Tk's default
+    apply_theme(root)
+
+    banner = tk.Frame(root, background=THEME_ACCENT)
+    banner.pack(fill="x", side="top")
+    try:
+        # kept as a root attribute - PhotoImage is garbage-collected otherwise
+        root._logo_img = tk.PhotoImage(file=os.path.join(assets_dir, "logo.png"))
+        tk.Label(banner, image=root._logo_img, background=THEME_ACCENT).pack(
+            side="left", padx=10, pady=6)
+    except Exception:
+        pass  # missing/unsupported logo file - banner still shows the title text
+    tk.Label(banner, text="FFCC Modding Toolkit", background=THEME_ACCENT,
+             foreground=THEME_FIELD_BG, font=("Segoe UI", 14, "bold")).pack(side="left")
+
     nb = ttk.Notebook(root)
     nb.pack(fill="both", expand=True)
 
-    nb.add(RandomizerTab(nb), text="Randomizer")
+    nb.add(ScrollableTab(nb, RandomizerTab), text="Randomizer")
 
     ce = ttk.Frame(nb)
     nb.add(ce, text="Chest Editor")
     chesteditor.App(ce)
 
-    nb.add(FileToolsTab(nb), text="File Tools")
+    nb.add(ScrollableTab(nb, FileToolsTab), text="File Tools")
 
-    nb.add(CustomItemTab(nb), text="Custom Item")
+    nb.add(ScrollableTab(nb, CustomItemTab), text="Custom Item")
 
-    nb.add(APPatchTab(nb), text="AP Patch")
+    nb.add(ScrollableTab(nb, APPatchTab), text="AP Patch")
 
     helptab = ttk.Frame(nb, padding=8)
     nb.add(helptab, text="Help")
-    h = scrolledtext.ScrolledText(helptab, wrap="word")
+    h = scrolledtext.ScrolledText(helptab, wrap="word", background=THEME_FIELD_BG,
+                                   foreground=THEME_TEXT, relief="flat")
     h.insert("1.0", HELP)
     h.config(state="disabled")
     h.pack(fill="both", expand=True)

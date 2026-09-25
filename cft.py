@@ -325,7 +325,13 @@ def cmd_sysvals(path, funcname):
                 dyn = "" if (mode & 1) else "  [+ runtime offset, not static]"
                 print(f"   @0x{off:04x}  {what} sysval index={index:<6d} {sysval_desc(index)}{dyn}")
         elif op == 0x02 and arg is not None:
-            index = arg >> 8
+            # SELV packs `index<<13 | classId` per the module docstring - NOT
+            # arg>>8 (that was a leftover copy from the GET/GETA decode above).
+            # Confirmed against a live Dolphin memory-breakpoint trace
+            # (2026-09-17): the real interpreter (fn_800B218C in the NTSC-US
+            # build) computes this via `srawi r26, r4, 0xd` (arithmetic shift
+            # by 13), not 8 - verified by disassembling main.elf directly.
+            index = arg >> 13
             setop = next((o for (_, o, _) in ops[i + 1:i + 6]
                           if o in (0x13, 0x14, 0x15, 0x16, 0x17, 0x18)), None)
             modestr = {0x13: '=', 0x16: '=', 0x14: '+=', 0x17: '+=',

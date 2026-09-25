@@ -24,6 +24,8 @@ One window with tabs for everything:
 - **Chest Editor** — the per-chest / per-cycle editor (below).
 - **File Tools** — extract / inject / list files in the ISO, and edit item
   stats in `param.cfd`.
+- **Custom Item** — repurpose an unused "Extra N" item slot into your own item.
+- **AP Patch** — one-time patch to prep a vanilla ISO for the Archipelago client.
 - **Help** — a quick in-app guide.
 
 The command-line tools below do the same things if you prefer a terminal.
@@ -144,10 +146,47 @@ export to see the current state, edit, patch to apply):
 | Mog never gets tired | `_mog_never_tired` (bool) | Removes the stamina penalty for running while Mog carries the chalice. Start.dol patch. |
 | Starting location | `_starting_location` (name) | Start a new game at Tipa (default), Marr's Pass, Alfitaria, or Fields of Fum instead of always Tipa. Limited to towns where Year 1 is completable. |
 | Skip Meteor Parasite → Mio questions → Raem | `_skip_mio_questions` (bool) | Jumps straight from the Meteor Parasite fight to the Raem fight. **Experimental** — not yet confirmed safe across a full playthrough; flagged in red in the GUI. |
+| Skip the opening intro cutscene | `_skip_intro_cutscene` (bool) | Jumps straight past the opening cutscene on a new game. Confirmed working in-game. |
+| Show Goblin Wall on the map from Year 1 | `_goblin_wall_always_visible` (bool) | Reveals Goblin Wall's road/icon on the world map starting Year 1, instead of waiting for the Year 1→2 transition. Doesn't change the Year value or anything else — patches the two `currentYear >= 2` checks in `world.cft` that gate the reveal. Confirmed working in-game. |
+| Randomize Miasma Stream elements | `_randomize_miasma_elements` (bool) | Shuffles which element (Fire/Water/Wind/Earth) each of the 4 rotating Miasma Streams requires each year, seeded like the rest of the randomizer. **Requires `_goblin_wall_always_visible` to also be set** — that's what guarantees Fire and Earth (Goblin Wall's own hotspots) are obtainable from Year 1, alongside River Belle Path's Water/Wind, so every element is always reachable regardless of the shuffle. Patch is skipped (with a log warning) if the other option isn't also enabled. **Experimental** — confirmed working for a single-slot manual test in-game; not yet confirmed safe across a full playthrough. |
 | Bonus Pools | `_randomize_bonus_pools` (bool) + `_bonus_pools` (per-dungeon override) | Randomizes the end-of-dungeon score-reward pool (separate from chests/enemy drops — see Notes below). `_bonus_pools` lets you hand-set exact items per dungeon/entry instead of (or on top of) randomizing; export a fresh JSON to see the current pool for every dungeon. |
+| Lock stages behind key artifacts | `_stage_key_locks` (bool) | Creates 14 new key artifacts (one per dungeon) and hides each one in a handful of chests (never enemy drops) across a randomized, always-solvable chain — River Belle Path always stays open, and no dungeon's key is ever placed inside that same dungeon. **Experimental** — 6 of the 13 gated dungeons (Goblin Wall, Veo Lu Sluice, Moschet Manor, Tida, Mine of Cathuriges, Mushroom Forest) are confirmed working in-game (covering all three underlying lock mechanisms used); the remaining 7 (Selepation Cave, Daemon's Court, Conall Curach, Rebena Te Ra, Mount Vellenge, Mount Kilanda, Lynari Desert) are statically verified byte-exact but **not yet confirmed in-game** — treat those as unvalidated until spot-checked. Mount Kilanda's own identification also rests on inference (its call site wasn't in the original reference list), so it's worth extra scrutiny. |
+| Enable developer debug menu | `_enable_debug_menu` (bool) | Unlocks the game's hidden "Development Mode" debug menu (9 Start.dol patches, derived from published Action Replay codes). **Experimental** — see below for how to use it. |
 
 These are all independent of chest/item randomization and of each other —
 mix and match freely.
+
+**The 14 stage keys:**
+
+| Item name | In-game description | Unlocks |
+| --- | --- | --- |
+| River Key | River Belle Path Key | *(nothing — River Belle Path is always open)* |
+| Gob Key | Goblin Wall Key | Goblin Wall |
+| Mine Key | Cathurige Key | The Mine of Cathuriges |
+| Shroom Key | The Mushroom Forest Key | The Mushroom Forest |
+| Tida Key | Tida Key | Tida |
+| Manor Key | Moschet Manor Key | Moschet Manor |
+| Lava Key | Kilanda Key | Mount Kilanda |
+| Fort Key | Daemon's Court Key | Daemon's Court |
+| Selep Key | Selepation Key | Selepation Cave |
+| Sluice Key | Veo Lu Sluice Key | Veo Lu Sluice |
+| Lynari Key | Lynari Desert Key | Lynari Desert |
+| Conall Key | Conall Key | Conall Curach |
+| Rebena Key | Rebena Te Ra Key | Rebena Te Ra |
+| Vellen Key | Mount Vellenge Key | Mount Vellenge |
+
+Item names are capped at 10 characters by a fixed name-slot size in the
+game's own data, hence the abbreviated forms for a few of these.
+
+**Using the debug menu:** it's controlled by a *second* GameCube controller
+plugged into Port 2 (in Dolphin: enable a second controller slot and bind it
+to a second physical pad, or a second keyboard/controller profile). On Port 2:
+`A` opens the debug menu, `B` closes it, D-pad Up/Down moves the selection,
+and `A`/`B` toggles the highlighted entry. It's a leftover QA test-flag menu
+(invincibility, collision checks, particle/shadow toggles, and more) — it is
+**not** confirmed to include a working free-roam camera, and some entries may
+do nothing or destabilize the game. Treat it as a fun bonus for explorers, not
+a reliable tool.
 
 ### JSON workflow (precise hand-editing)
 
