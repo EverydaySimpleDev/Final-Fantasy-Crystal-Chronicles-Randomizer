@@ -230,10 +230,28 @@ def _pick_nonart(rng, base, mode, nonart):
     return rng.choice(nonart)
 
 
+# Bosses that take only 1 damage until hit with Holy. Holy isn't a droppable
+# stone (0x108 never drops) - it's cast by fusing Stone of Life (0x107) with
+# Fire/Blizzard/Thunder (0x100-0x102). Magicite stones don't carry between
+# dungeons, so the stones must be obtainable inside the boss's own dungeon:
+# its vanilla all-magicite sets (per-element spawn/drop tables, e.g. city_0
+# sets 7-13 = Fire/Blizzard/Thunder/Cure/Life/Clear/mixed) are never
+# randomized or used for stage keys. Keyed by the dungeon hosting the boss -
+# update if a boss shuffle moves Lich or Zombie Dragon.
+HOLY_BOSS_DUNGEONS = {"city": "Lich", "swamp": "Zombie Dragon"}
+STONE_OF_LIFE = 0x107
+ELEMENT_STONES = {0x100, 0x101, 0x102}
+
+
+def _is_magicite_set(s):
+    return set_kind([v for _, v in s]) == "magicite"
+
+
 def _randomize_area(iso, disc, rng, mode, pool, nonart, fill_empty, apply, rolls,
-                    max_artifacts, art_per_cycle, only_sets):
+                    max_artifacts, art_per_cycle, only_sets, keep_magicite=False):
     """Randomize ONE area file in place. `art_per_cycle` is the dungeon-wide
-    artifact tally (shared across the dungeon's areas). Returns
+    artifact tally (shared across the dungeon's areas). `keep_magicite` leaves
+    the area's all-magicite sets vanilla (see HOLY_BOSS_DUNGEONS). Returns
     [(area_no, set_index, slot_index, old_id, new_id)]."""
     import collections
     tmp = os.path.join(tempfile.gettempdir(), "rnd_" + os.path.basename(disc))
@@ -244,6 +262,8 @@ def _randomize_area(iso, disc, rng, mode, pool, nonart, fill_empty, apply, rolls
     for si, s in enumerate(sets):
         if only_sets is not None and si not in only_sets:
             continue                              # chests-only: skip drop/pool sets
+        if keep_magicite and _is_magicite_set(s):
+            continue                              # Holy-boss dungeon: keep stones
         keys = _slot_groups(len(s), rolls)
         cyc = lootcft.slot_cycles(len(s))
         members = collections.defaultdict(list)
@@ -283,19 +303,46 @@ def _randomize_area(iso, disc, rng, mode, pool, nonart, fill_empty, apply, rolls
 
 
 def randomize_dungeon(iso, script, discs, rng, mode, pool, fill_empty, apply, rolls,
-                      max_artifacts=4, only_by_disc=None):
+                      max_artifacts=4, only_by_disc=None, holy_dungeons=HOLY_BOSS_DUNGEONS):
     """Randomize all area files of one dungeon, enforcing at most `max_artifacts`
     artifacts per cycle ACROSS the whole dungeon (one shared tally). `only_by_disc`
     (dict disc -> set of chest set indices) restricts to chests; None = everything.
+    Dungeons in `holy_dungeons` keep their magicite sets so Holy stays castable.
     Returns [(area_no, set_index, slot_index, old_id, new_id)]."""
     nonart = [v for v in pool if items.category(v) != "Artifact"]
     art_per_cycle = {1: 0, 2: 0, 3: 0}            # shared across the dungeon's areas
+    keep = script in holy_dungeons
     changes = []
     for disc in discs:
         only = only_by_disc.get(disc) if only_by_disc is not None else None
         changes += _randomize_area(iso, disc, rng, mode, pool, nonart, fill_empty,
-                                   apply, rolls, max_artifacts, art_per_cycle, only)
+                                   apply, rolls, max_artifacts, art_per_cycle, only,
+                                   keep_magicite=keep)
     return changes
+
+
+def check_holy_access(iso, holy_dungeons=HOLY_BOSS_DUNGEONS):
+    """After all patching: for each Holy-boss dungeon, confirm some area still
+    has a set that is all Stone of Life and a set with an element stone.
+    Returns a list of problem strings (empty = OK)."""
+    problems = []
+    for script, friendly, discs in dungeons_in_iso(iso):
+        if script not in holy_dungeons:
+            continue
+        life = element = False
+        for disc in discs:
+            tmp = os.path.join(tempfile.gettempdir(), "holy_" + os.path.basename(disc))
+            _extract(iso, disc, tmp)
+            for s in lootcft.find_sets(tmp, valid=is_item):
+                ids = [v for _, v in s]
+                life |= all(v == STONE_OF_LIFE for v in ids)
+                element |= any(v in ELEMENT_STONES for v in ids)
+        if not (life and element):
+            problems.append(f"{friendly} ({script}, {holy_dungeons[script]}): "
+                            f"{'no Stone of Life set' if not life else ''}"
+                            f"{' and ' if not life and not element else ''}"
+                            f"{'no element stone set' if not element else ''} - Holy may be impossible")
+    return problems
 
 
 # ---------------------------------------------------------------------------
@@ -1319,6 +1366,19 @@ def cmd_export(iso, out_path, ref=None):
     except Exception:
         pass  # older/unrecognized dol - leave the key out rather than fail the export
     data["_stage_key_locks"] = False    # set true to create/place keys + apply locks on patch
+    # EXPERIMENTAL boss shuffle. `_randomize_bosses: true` shuffles bosses on
+    # patch (Goblin King and Lich stay home); `_bosses` places them explicitly
+    # (dungeon -> boss, any boss in any dungeon) and wins over the shuffle for
+    # every dungeon it lists. Needs a copy whose bosses haven't been moved yet.
+    data["_randomize_bosses"] = False
+    try:
+        import bossshuffle
+        status = bossshuffle.boss_status(iso)
+        friendly = dict(lootcft.DUNGEONS)
+        data["_bosses"] = {friendly[s]: n for s, n in status.items() if n}
+        data["_boss_choices"] = [n for _, _, n, _ in bossshuffle.BOSSES]
+    except Exception:
+        pass  # older/unrecognized arena files - leave the keys out rather than fail
     data["_randomize_bonus_pools"] = False    # set true to auto-randomize on patch
     try:
         pools = read_bonus_pools(iso)
@@ -1659,12 +1719,15 @@ def create_stage_key_items(iso, donor=STAGE_KEY_DONOR):
                                          donor_id=STAGE_KEY_DESC_DONOR.get(script))
 
 
-def place_stage_keys(iso, chain, rng, chests_per_dungeon=STAGE_KEY_CHESTS_PER_DUNGEON):
+def place_stage_keys(iso, chain, rng, chests_per_dungeon=STAGE_KEY_CHESTS_PER_DUNGEON,
+                     holy_dungeons=HOLY_BOSS_DUNGEONS):
     """Place each dungeon's required key into `chests_per_dungeon` chests
     (chosen at random, all 7 cycle-slots of each so the key doesn't depend on
     which year the player finds it in) of the PREVIOUS dungeon in `chain` -
     only ever the dungeon the player must already be ABLE to enter, never the
-    gated dungeon itself. Chests only, never monster/spawn drop tables.
+    gated dungeon itself. Chests only, never monster/spawn drop tables. In a
+    `holy_dungeons` dungeon the magicite sets are never used, so a key can't
+    overwrite the Life/element stones the boss needs.
     Returns {dungeon_script: [chest_set_index, ...]} actually used."""
     by_script = dict((s, kid) for s, kid, _ in STAGE_KEYS)
     discs_by_script = {script: discs for script, _, discs in dungeons_in_iso(iso)}
@@ -1684,7 +1747,9 @@ def place_stage_keys(iso, chain, rng, chests_per_dungeon=STAGE_KEY_CHESTS_PER_DU
         if not sets:
             print(f"WARNING: no chests found in {disc!r} - {chain[i]!r}'s key could not be placed")
             continue
-        chosen_idx = sorted(rng.sample(range(len(sets)), k=min(chests_per_dungeon, len(sets))))
+        candidates = [si for si, s in enumerate(sets)
+                      if not (source_script in holy_dungeons and _is_magicite_set(s))]
+        chosen_idx = sorted(rng.sample(candidates, k=min(chests_per_dungeon, len(candidates))))
         edits = {}
         for si in chosen_idx:
             for off, _ in sets[si]:
@@ -1716,6 +1781,8 @@ def cmd_patch(iso, json_path, max_artifacts=4):
         print(f"note: could not auto-install AP Item ({e}); JSON placing it may fail")
     with open(json_path, encoding="utf-8") as f:
         spec = json.load(f)
+    boss_plan = _boss_plan_from_spec(spec)
+    holy = holy_dungeons_for(boss_plan)
     if spec.get("_mog_never_tired"):
         try:
             patch_mog_never_tired(iso, apply=True)
@@ -1769,7 +1836,7 @@ def cmd_patch(iso, json_path, max_artifacts=4):
             create_stage_key_items(iso)
             chain = randomize_stage_key_chain(random.Random())
             reqs = stage_key_requirements(chain)
-            placements = place_stage_keys(iso, chain, random.Random())
+            placements = place_stage_keys(iso, chain, random.Random(), holy_dungeons=holy)
             patch_stage_key_locks(iso, apply=True)
             print("Stage-key artifacts: created all 14, placed via a randomized "
                   f"solvable chain starting at {STAGE_KEY_ALWAYS_OPEN!r}: {chain}")
@@ -1882,6 +1949,59 @@ def cmd_patch(iso, json_path, max_artifacts=4):
     for w in warns:
         print("  ! " + w)
     print(f"Patched {total} slot(s) into {os.path.basename(iso)}.")
+    if boss_plan is not None:
+        apply_bosses(iso, boss_plan)
+    for problem in check_holy_access(iso, holy):
+        print(f"WARNING: {problem}")
+
+
+def _boss_plan_from_spec(spec):
+    """Boss plan from a patch JSON, or None to leave bosses alone.
+
+    `_bosses` ({dungeon: boss}) places bosses explicitly. With
+    `_randomize_bosses: true` the rest are shuffled (Goblin King and Lich stay
+    home), and an entry naming a dungeon's own original boss counts as "no
+    preference" - so an exported `_bosses` block left unedited doesn't cancel
+    the shuffle. A boss placed explicitly is taken out of the shuffle."""
+    import bossshuffle
+    explicit = {}
+    if spec.get("_bosses"):
+        full = bossshuffle.normalize_plan(spec["_bosses"])
+        vanilla = bossshuffle.vanilla_plan()
+        explicit = {s: b for s, b in full.items() if b != vanilla[s]}
+    if not spec.get("_randomize_bosses"):
+        if not explicit:
+            return None
+        plan = bossshuffle.vanilla_plan()
+        plan.update(explicit)
+        return plan
+    return bossshuffle.random_plan(random.Random(), fixed=explicit)
+
+
+def holy_dungeons_for(boss_plan):
+    """Dungeons whose magicite must stay vanilla: wherever Lich and Zombie
+    Dragon are (their home dungeons when bosses aren't moved)."""
+    if boss_plan is None:
+        return HOLY_BOSS_DUNGEONS
+    import bossshuffle
+    return bossshuffle.holy_dungeons(boss_plan)
+
+
+def apply_bosses(iso, boss_plan, spoiler=None):
+    """Apply a boss plan (EXPERIMENTAL) and print what moved. Appends the
+    placement to `spoiler` if given."""
+    import bossshuffle
+    try:
+        log = bossshuffle.apply_boss_plan(iso, boss_plan)
+    except Exception as e:
+        print(f"note: could not place bosses ({e})")
+        return False
+    moved = [l for l in log if not l.startswith("    ")]
+    print("Bosses (EXPERIMENTAL): " + ("; ".join(moved) if moved else "no changes"))
+    if spoiler:
+        with open(spoiler, "a", encoding="utf-8") as f:
+            f.write("\n" + "\n".join(bossshuffle.plan_text(boss_plan)) + "\n")
+    return True
 
 
 def cmd_hybrid_patch(iso, ref_iso, ffcc_file):
@@ -2098,6 +2218,11 @@ def cmd_run(iso, args, apply):
           f"pool={args.pool} pool_size={len(pool)} max_artifacts/cycle="
           f"{getattr(args, 'max_artifacts', 4)} "
           f"scope={'chests-only' if chests_only else 'chests+drops'} dungeons={len(found)}")
+    boss_plan = None
+    if getattr(args, "randomize_bosses", False):
+        import bossshuffle
+        boss_plan = bossshuffle.random_plan(random.Random(f"{args.seed}-bosses"))
+    holy = holy_dungeons_for(boss_plan)
     total = 0
     for script, friendly, discs in found:
         only_by_disc = None
@@ -2108,7 +2233,8 @@ def cmd_run(iso, args, apply):
                 continue
         changes = randomize_dungeon(iso, script, discs, rng, args.mode, pool,
                                     args.fill_empty, apply, args.rolls,
-                                    getattr(args, "max_artifacts", 4), only_by_disc)
+                                    getattr(args, "max_artifacts", 4), only_by_disc,
+                                    holy_dungeons=holy)
         total += len(changes)
         na = len(discs)
         print(f"\n{friendly} ({script})  -  {len(changes)} slot(s) changed across {na} area(s)")
@@ -2122,6 +2248,10 @@ def cmd_run(iso, args, apply):
         spoiler = os.path.splitext(iso)[0] + " - spoiler.txt"
         cmd_spoiler(iso, spoiler, ref=getattr(args, "ref", None),
                     header=_options_header(args))
+        if boss_plan is not None:
+            apply_bosses(iso, boss_plan, spoiler)
+        for problem in check_holy_access(iso, holy):
+            print(f"WARNING: {problem}")
     else:
         print("Run the same command with `run` (and the same --seed) to apply.")
 
@@ -2155,6 +2285,10 @@ def main():
                    help="randomize only Game8-identified chests, leaving enemy-drop / "
                         "shared sets alone (needs --ref; dungeons without Game8 data are skipped)")
     p.add_argument("--ref", help="vanilla ISO used to label spoiler chests by Game8 chest number")
+    p.add_argument("--randomize-bosses", action="store_true",
+                   help="EXPERIMENTAL: shuffle dungeon bosses between arenas (with `run`; "
+                        "Goblin King and Lich stay home). Needs a copy whose bosses "
+                        "haven't been moved yet")
     p.add_argument("--ffcc", help=".ffcc placement file (for `ap-hybrid`)")
     args = p.parse_args()
 

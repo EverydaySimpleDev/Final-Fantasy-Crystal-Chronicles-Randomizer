@@ -2,7 +2,7 @@
 
 `A` (`SPAWN_TBOX` chests) and `E` (`SPAWN` monsters) are both **confirmed**
 `get_treasure` indices — swapping either between two records swaps what they
-drop (user-verified in-game; each index has 4 item slots, matching
+drop (verified in-game; each index has 4 item slots, matching
 `PutDropItem`'s `m_dropItemCodes[4]`).
 
 Generated from `spawn_map.py` against the real `.cft` data. Regenerate with:

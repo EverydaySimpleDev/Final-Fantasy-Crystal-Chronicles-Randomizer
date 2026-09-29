@@ -22,6 +22,7 @@ Usage (extract a file first with gciso.py, then point cft.py at it):
     python cft.py block   cave_0.cft TreasureBox  # hex-dump one block's VAL/code
     python cft.py calls   cave_0.cft initTreasureBox  # disassemble a function's calls
     python cft.py sysvals cave_0.cft mainTreasureBox  # find literal "system value" get/set
+    python cft.py paramset river_0.cft          # per-monster animation clips a stage loads
 
 Opcode table (FFCC CFlat script VM), reverse-engineered from the decompiled
 VM interpreter (CFlatRuntime::objectFrame / CFlatRuntime2::onSystemVal /
@@ -339,6 +340,56 @@ def cmd_sysvals(path, funcname):
             print(f"   @0x{off:04x}  SET{modestr:<4s} sysval index={index:<6d} {sysval_desc(index)}")
 
 
+def str_table(data):
+    """Return the file's top-level STR table as a list of bytes, indexed the
+    way opcode 0x05 (push string) indexes it. Header: 'STR ', byte length,
+    string count; body is NUL-separated."""
+    pos = 0x10
+    while pos + 16 <= len(data):
+        tag = data[pos:pos + 4]
+        length, count = struct.unpack(">II", data[pos + 4:pos + 12])
+        if tag == b"STR ":
+            return data[pos + 16:pos + 16 + length].split(b"\x00")[:count]
+        pos = (pos + 16 + length + 15) // 16 * 16
+    return []
+
+
+def paramset_cases(path):
+    """Decode a stage's ParamSet function: a `DUP; PUSHI id; ==; JZ next`
+    switch on monster ID, one case per monster the stage can animate. Each
+    case's loadAnim(clip, slot, flags, charaKind=-1, charaNo=-1) calls load
+    `dvd/char/mon/mNNN/<clip>.cha` into an animation slot, where NNN is the
+    monster's model number from param.cfd (see Documentation/Monster and
+    Boss Swapping.md). Returns {monster_id: [(clip, slot, flags), ...]}."""
+    root, data = parse(path)
+    strs = str_table(data)
+    func = next((s for s in root.subtags if s.type == b"FUNC"), None)
+    names = [k.name() for k in func.subtags]
+    if "ParamSet" not in names:
+        return {}
+    ins = list(disasm(_code_of(func.subtags[names.index("ParamSet")])))
+    cases, cur, pushes = {}, None, []
+    for j, (off, op, arg) in enumerate(ins):
+        if (op == 0x3a and j + 2 < len(ins) and ins[j + 1][1] == 0x03
+                and ins[j + 2][1] == 0x2c):
+            cur = ins[j + 1][2]
+            cases[cur] = []
+        if op == 0x0a:
+            if (cur is not None and names[arg & 0xFFFF] == "loadAnim"
+                    and len(pushes) >= 5 and pushes[-5][0] == 0x05):
+                clip = strs[pushes[-5][1]].decode("latin1")
+                cases[cur].append((clip, pushes[-4][1], pushes[-3][1]))
+            pushes = []
+        elif op in (0x03, 0x05):
+            pushes.append((op, arg))
+    return cases
+
+
+def cmd_paramset(path):
+    for mid, clips in paramset_cases(path).items():
+        print(f"monster {mid:3d}: " + ", ".join(f"{c}@{s}" for c, s, _ in clips))
+
+
 def hexdump(b, width=16, limit=512):
     for i in range(0, min(len(b), limit), width):
         chunk = b[i:i + width]
@@ -369,6 +420,8 @@ if __name__ == "__main__":
         cmd_calls(path, arg)
     elif cmd == "sysvals":
         cmd_sysvals(path, arg)
+    elif cmd == "paramset":
+        cmd_paramset(path)
     else:
         print(__doc__.strip())
         sys.exit(1)

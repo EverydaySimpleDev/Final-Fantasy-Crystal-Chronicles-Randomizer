@@ -6,7 +6,8 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[('assets', 'assets')],
-    hiddenimports=[],
+    # imported inside functions (boss shuffle); listed so they're always bundled
+    hiddenimports=['bossshuffle', 'cftpatch'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

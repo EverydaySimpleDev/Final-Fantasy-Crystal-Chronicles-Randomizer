@@ -315,3 +315,18 @@ py cft.py tree|blocks|find|strings|block|calls <file.cft>    # inspect compiled 
   and Rebena Te Ra. Dungeons span **multiple area files** (`_0`, `_1`, …) and the
   randomizer processes every area, with the 4-artifacts-per-cycle cap applied
   **across the whole dungeon** (all its areas combined).
+- **Holy is always obtainable where a boss needs it.** Lich (Rebena Te Ra) and
+  Zombie Dragon (Conall Curach) take 1 damage until hit with Holy. Holy isn't
+  a droppable stone: it's cast by fusing a **Stone of Life** with a Fire,
+  Blizzard or Thunder stone. Stones don't carry between dungeons, so both
+  must be found in that dungeon. The randomizer therefore never randomizes
+  those two dungeons' magicite sets (the per-element stone spawn/drop tables),
+  and never uses them for stage keys. Every other set there is still
+  randomized. After patching, `check_holy_access()` confirms each dungeon
+  still has a Life set and an element set, and prints a warning if not. With
+  the experimental boss shuffle, the protection follows Lich and Zombie Dragon
+  to whichever dungeons they end up in (`HOLY_BOSS_DUNGEONS` in
+  `randomizer.py` is the default when bosses aren't moved). The
+  `ap-patch` / `ap-hybrid` modes only
+  replace chest sets, and none of these magicite sets are chests, so AP seeds
+  keep the stones as well.

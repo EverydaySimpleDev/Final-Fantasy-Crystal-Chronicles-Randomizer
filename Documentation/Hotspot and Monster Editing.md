@@ -137,50 +137,60 @@ py gciso.py inject "Your_test.iso" dvd/cft/river_0.cft river_0.cft
 `Monster Addresses.md` for the full ID table). The record layout:
 
 ```
-MonsterID, field2, field3, field4, X, Y, Z, rotation, 0, 0x40000004, spawnParam, 0, 0
+MonsterID, field2, cycles, field4, X, Y, Z, rotation, 0, 0x40000004, drop, 0, 0
 ```
 
-`field2` is 0 for a small minority of records and 1 for most — treat it as a
-conditional/cycle-ish gate you don't fully control yet: **prefer editing
-records where `field2 == 1`**, since that's the group proven to actually spawn
-during normal play.
+- **`field2`** is 0 for a small minority of records and 1 for most. Its
+  meaning isn't known, so **prefer editing records where `field2 == 1`**;
+  that group is proven to spawn in normal play.
+- **`cycles`** is a packed bitfield of which cycles (and player counts) the
+  spawn appears in, so a record can be absent in some playthroughs.
+- **`field4`** (seen as 0, 2, 7 or 8) is still unidentified.
+- **`drop`** is the index of the monster's drop table.
 
-**The one real gotcha:** a stage only has *animations* loaded for the monster
-IDs it already uses natively. Swap to some ID with a valid model that's never
-used in that stage and the monster **will spawn and behave (AI/targeting/
-movement works) but will play no animations and won't attack** — confirmed by
-testing (River Belle Path: swapping a Goblin to a Griffin, an ID already used
-elsewhere in that same file, worked perfectly; swapping to a Cactuar, an ID
-used nowhere in that file, produced a monster with no attack animation).
+Example records from River Belle Path (`river_0.cft`):
 
-**So: before picking a replacement ID, check which IDs are already used
-elsewhere in the same dungeon's `SPAWN_MONSTER`, and pick from that set** if
-you want a monster that actually fights. Free-form swapping to *any* valid ID
-is possible today only if you don't mind the "zombie" animation state, or want
-to separately track down and patch wherever each stage's animation table gets
-populated (not yet investigated — bigger job, a real research project of its
-own).
+| Monster (ID) | field2 | cycles | field4 | X, Y, Z, rotation | drop |
+|---|---|---|---|---|---|
+| Hedgehog Pie (19) | 0 | `0x1F` | 2 | -237.06, 6.91, -406.64, 0.00 | 50 |
+| Goblin, Sword (43) | 0 | `0x7F` | 7 | -237.19, 4.58, -479.42, 0.79 | 50 |
+| Goblin, Mage (46) | 0 | `0x7F` | 7 | -185.76, 3.76, -431.75, 0.79 | 51 |
+| Mu (16) | 0 | `0x7F` | 2 | -291.33, 8.19, -381.63, 0.79 | 52 |
+| Mu (16) | 0 | `0x7C` | 2 | -243.26, 0.48, -304.49, 1.57 | 52 |
+| Goblin, Sword (43) | 0 | `0x7C` | 8 | -220.52, 0.30, -526.14, 0.00 | 52 |
 
-### Boss fights work the same way, with the same limitation
+Negative coordinates are compiled as a positive float followed by opcode
+`0x2B` (float negate), so read the instruction after each `PUSHF` before
+trusting its sign.
 
-A dungeon's boss fight lives in a **separate file** — `river_0.cft` is the
-field, `river_1.cft` is the boss room (look for `Map_Floor_ID_Boss`/
-`PC_BOSS_DIE` in its function names to confirm you've got the right file). It
-has its own `SPAWN_MONSTER` with its own handful of `SPAWN` records — one is
-the actual boss, others may be helper/add spawns. Same edit, same tooling,
-just point it at the boss's own record instead.
+**The one real gotcha:** changing only the monster ID works if the stage
+already contains that monster. For a monster the stage doesn't normally have,
+the new monster **spawns and its AI runs, but it plays no animations and
+never attacks** (a "zombie"). Each stage loads animations, sounds and hitbox
+settings only for its own monsters. For example, in River Belle Path a Goblin
+changed to a Griffin (already in that stage) works fully, but a Goblin
+changed to a Cactuar (not in that stage) is a zombie.
 
-Confirmed by testing (River Belle Path's real boss is Giant Crab, not a
-goblin, despite the field being goblin-heavy — always check the boss file
-rather than assuming): swapping the boss to a different monster ID works at
-the combat level (hit detection, damage, death all function normally,
-including a fully winnable fight against a monster with no special elemental
-requirement), but hits the **exact same animation-roster limitation** as field
-monsters — the replacement boss loads and can be fought, but with broken/
-missing animations, since the boss file's animation table only covers the
-monster IDs it originally shipped with. **Boss-swapping is paused for now**
-until that animation-loading mechanism is understood well enough to fix;
-further ID swaps alone won't get around it.
+So either pick a replacement from the monsters the stage already spawns, or
+use `cftpatch.py` to copy the new monster's data into the stage first. See
+[Monster and Boss Swapping.md](Monster%20and%20Boss%20Swapping.md).
+`py cft.py paramset <stage>.cft` lists the monsters a stage supports.
+
+### Boss fights
+
+A dungeon's boss fight lives in a **separate file**. For River Belle Path,
+`river_0.cft` is the field and `river_1.cft` is the boss room; look for
+`Map_Floor_ID_Boss` / `PC_BOSS_DIE` among the function names to confirm
+you have the boss file. It has its own `SPAWN_MONSTER` with a few `SPAWN`
+records: one is the boss, the others are its helpers. The boss is often not
+the monster the field suggests (River Belle Path's is Giant Crab), so check
+the boss file.
+
+The same single-byte edit changes the boss, with the same zombie limitation.
+A different boss changed in this way fights and can be killed, but its
+animations are broken. For a proper boss swap, including summons and
+arena-specific mechanics such as Lich's orbs, see
+[Monster and Boss Swapping.md](Monster%20and%20Boss%20Swapping.md).
 
 **1. List the records and find candidates:**
 
@@ -220,14 +230,14 @@ before/after-verified single-byte write (the monster ID is a 4-byte big-endian
 int right after a `03` opcode byte, exactly like the hotspot's element arg),
 same whole-file diff, same `gciso.py inject` into a test copy.
 
-## Worked example from this project
+## Worked example (verified in-game)
 
 River Belle Path (`river_0.cft`), `SPAWN_MONSTER`:
-- Hotspot at code-offset `5757`, changed element `2` (Water) → `1` (Fire) —
-  confirmed in-game via the "Your crystal's element remains fire" message.
-- 11 Goblin(Sword) records (code-offsets `1037, 1109, 1182, 1470, 1616, 1762,
-  2339, 2554, 3702, 5018, 5092`, all `field2==1`) changed to Griffin (ID `10`,
-  already native to this file) — confirmed working with full AI and attacks.
-- The same 11 offsets changed to Cactuar (ID `14`, not native to this file)
-  instead — confirmed spawning with AI but no animations/attacks, demonstrating
-  the per-stage animation-roster limit above.
+- Hotspot at code-offset `5757`, element changed from `2` (Water) to `1`
+  (Fire). The game then shows "Your crystal's element remains fire".
+- 11 Goblin (Sword) records (code-offsets `1037, 1109, 1182, 1470, 1616, 1762,
+  2339, 2554, 3702, 5018, 5092`, all `field2 == 1`) changed to Griffin (ID
+  `10`, already in this stage): full AI and attacks.
+- The same 11 records changed to Cactuar (ID `14`, not in this stage): the
+  monsters spawn with AI but no animations or attacks. The fix is in
+  [Monster and Boss Swapping.md](Monster%20and%20Boss%20Swapping.md).

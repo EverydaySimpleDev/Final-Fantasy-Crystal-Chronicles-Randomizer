@@ -271,6 +271,11 @@ def rebuild_iso(iso_in, edits, iso_out, align=0x20):
         struct.pack_into(">I", data, fst_off + idx * 12 + 4, new_off)   # offset
         struct.pack_into(">I", data, fst_off + idx * 12 + 8, len(content))  # size
         changes.append((real_path, new_off, len(content)))
+    # The game rounds read lengths up (to 32 bytes) and Dolphin reads in
+    # 32 KB blocks, so a file appended flush with the end of the image gets
+    # read past EOF -> "The disc could not be read". Pad the image out.
+    tail = (len(data) + 0x7FFF) // 0x8000 * 0x8000
+    data.extend(b"\x00" * (tail - len(data)))
     with open(iso_out, "wb") as f:
         f.write(data)
     return changes

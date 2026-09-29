@@ -198,6 +198,7 @@ class RandomizerTab(ttk.Frame):
         self.goblin_wall_always_visible = tk.BooleanVar(value=False)
         self.randomize_miasma_elements = tk.BooleanVar(value=False)
         self.stage_key_locks = tk.BooleanVar(value=False)
+        self.randomize_bosses = tk.BooleanVar(value=False)
         self.debug_menu = tk.BooleanVar(value=False)
 
         # Source ISO (read-only) -> Output ISO (created/written). Choosing a
@@ -322,6 +323,16 @@ class RandomizerTab(ttk.Frame):
                   "gated dungeons now check for their key on entry, but this hasn't yet "
                   "been confirmed by a full in-game playthrough of every dungeon.",
                   foreground="#a33", wraplength=520, justify="left").pack(anchor="w")
+        ttk.Checkbutton(gt, text="Randomize bosses (shuffle dungeon bosses between arenas)",
+                        variable=self.randomize_bosses).pack(anchor="w", pady=(6, 0))
+        ttk.Label(gt, text="EXPERIMENTAL: each dungeon's boss room gets another dungeon's "
+                  "boss, with its helpers and summons. Goblin King and Lich stay in their "
+                  "own arenas (they need their arena's scripts); Mount Vellenge's final "
+                  "boss isn't moved. A moved boss may still play the old boss's entrance. "
+                  "Holy stays obtainable wherever Lich and Zombie Dragon end up. To choose "
+                  "bosses per dungeon (any boss, including Lich), use Export JSON / Patch "
+                  "from JSON and edit \"_bosses\". Source ISO must have unmoved bosses.",
+                  foreground="#a33", wraplength=520, justify="left").pack(anchor="w")
         ttk.Checkbutton(gt, text="Enable developer debug menu (Development Mode)",
                         variable=self.debug_menu).pack(anchor="w", pady=(6, 0))
         ttk.Label(gt, text="Plug in a SECOND GameCube controller (Port 2) to use it: "
@@ -440,6 +451,7 @@ class RandomizerTab(ttk.Frame):
         ns.goblin_wall_always_visible = self.goblin_wall_always_visible.get()
         ns.randomize_miasma_elements = self.randomize_miasma_elements.get()
         ns.stage_key_locks = self.stage_key_locks.get()
+        ns.randomize_bosses = self.randomize_bosses.get()
         ns.debug_menu = self.debug_menu.get()
         return ns
 
@@ -499,6 +511,7 @@ class RandomizerTab(ttk.Frame):
                  + (1 if getattr(ns, "goblin_wall_always_visible", False) else 0)
                  + (1 if getattr(ns, "randomize_miasma_elements", False) else 0)
                  + (1 if getattr(ns, "stage_key_locks", False) else 0)
+                 + (1 if getattr(ns, "randomize_bosses", False) else 0)
                  + (1 if getattr(ns, "debug_menu", False) else 0))
         self.progress.config(maximum=len(found) + 1 + extra, value=0)
         self.log.write(f"Randomizing {os.path.basename(out)}  "
@@ -516,6 +529,11 @@ class RandomizerTab(ttk.Frame):
         widgets directly - tkinter isn't thread-safe)."""
         rng = random.Random(ns.seed)
         total = 0
+        boss_plan = None
+        if getattr(ns, "randomize_bosses", False):
+            import bossshuffle
+            boss_plan = bossshuffle.random_plan(random.Random(f"{ns.seed}-bosses"))
+        holy = rnd.holy_dungeons_for(boss_plan)
         try:
             for i, (script, friendly, discs) in enumerate(found, 1):
                 self._q.put(("label", f"Randomizing: {friendly}"))
@@ -528,7 +546,8 @@ class RandomizerTab(ttk.Frame):
                 try:
                     changes = rnd.randomize_dungeon(out, script, discs, rng, ns.mode, pool,
                                                     ns.fill_empty, True, ns.rolls,
-                                                    ns.max_artifacts, only_by_disc)
+                                                    ns.max_artifacts, only_by_disc,
+                                                    holy_dungeons=holy)
                 except Exception as e:
                     self._q.put(("log", f"  [error] {friendly}: {e}"))
                     changes = []
@@ -641,7 +660,7 @@ class RandomizerTab(ttk.Frame):
                 try:
                     rnd.create_stage_key_items(out)
                     chain = rnd.randomize_stage_key_chain(random.Random())
-                    rnd.place_stage_keys(out, chain, random.Random())
+                    rnd.place_stage_keys(out, chain, random.Random(), holy_dungeons=holy)
                     rnd.patch_stage_key_locks(out, apply=True)
                     self._q.put(("log", f"  stage-key artifacts: created 14, placed via chain {chain} "
                                         "- all 13 gated dungeons now check for their key on entry"))
@@ -662,6 +681,25 @@ class RandomizerTab(ttk.Frame):
                 self._q.put(("value", step))
             spoiler = os.path.splitext(out)[0] + " - spoiler.txt"
             run_capture(rnd.cmd_spoiler, out, spoiler, ns.ref, rnd._options_header(ns))
+            if boss_plan is not None:
+                # last: this rebuilds the ISO (arena files change size), after
+                # every in-place patch above
+                self._q.put(("label", "Shuffling bosses (rebuilding ISO)"))
+                import bossshuffle
+                try:
+                    blog = bossshuffle.apply_boss_plan(out, boss_plan)
+                    moved = sum(1 for l in blog if not l.startswith("    ") and "->" in l
+                                and not l.startswith("Start.dol"))
+                    self._q.put(("log", f"  bosses: {moved} arena(s) got a different boss "
+                                        "(EXPERIMENTAL - placement is in the spoiler)"))
+                    with open(spoiler, "a", encoding="utf-8") as f:
+                        f.write("\n" + "\n".join(bossshuffle.plan_text(boss_plan)) + "\n")
+                except Exception as e:
+                    self._q.put(("log", f"  [error] boss shuffle: {e}"))
+                step += 1
+                self._q.put(("value", step))
+            for problem in rnd.check_holy_access(out, holy):
+                self._q.put(("log", f"  [warning] {problem}"))
             self._q.put(("value", step + 1))
             self._q.put(("log", f"Done - {total} chest slots randomized into {os.path.basename(out)}."))
             self._q.put(("log", f"Spoiler saved to {os.path.basename(spoiler)} "
@@ -921,6 +959,17 @@ GAMEPLAY TWEAKS (Randomizer tab)
        Cave/Veo Lu Sluice/Lynari Desert/Conall Curach/Rebena Te Ra/Mount
        Vellenge respectively - see the README for the full name/
        description table.
+    Randomize bosses  - EXPERIMENTAL, shuffles the 13 dungeon bosses between
+       boss arenas, each with its helpers and summons. Goblin King and Lich
+       stay home in a random shuffle; Mount Vellenge's final boss never moves.
+       A moved boss may play the old boss's entrance. Holy (Life + an element
+       stone) stays obtainable wherever Lich and Zombie Dragon end up.
+       JSON: "_randomize_bosses": true shuffles on patch; "_bosses" maps each
+       dungeon to a boss (any of the names in "_boss_choices", Lich included:
+       it brings its orbs, and its teleport points are estimated for the new
+       arena). Entries naming a dungeon's own boss mean "no preference".
+       Placement is written to the spoiler. Needs a source ISO whose bosses
+       haven't been moved yet.
     Enable developer debug menu  - EXPERIMENTAL, unlocks a hidden QA menu.
        Needs a second GameCube controller on Port 2 (A=open, B=close, D-pad
        Up/Down=select, A/B=toggle). Some entries may do nothing or

@@ -37,9 +37,9 @@ py customitem.py add       "copy.iso" 0xE8 "HP Charm" --like "Earth Pendant"
 `--like` clones the donor's full record (stats, model, effect) under a
 new name and (optionally) a new icon (`set_icon_cell`) or description
 (`set_item_description`, which borrows spare bytes from a nearby unused
-"Help Message" slot so the file size never changes). This already worked
-end-to-end this session for the randomizer's own custom "AP Item" (slot
-`0x162`).
+"Help Message" slot so the file size never changes). This is how the
+randomizer's own custom "AP Item" (slot `0x162`) is made, and it works
+in-game.
 
 ## Finding empty slots
 

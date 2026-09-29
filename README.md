@@ -385,7 +385,9 @@ py objimport.py export|import|newmesh|roundtrip <model.chm>  # edit/replace mode
 py chmio.py <file>          # byte-exact model-container round-trip check
 py dlst.py  <model.chm>     # inspect/verify display lists (faces)
 py chest.py table|find|setslot|set <file.cft> ...            # CLI single-file chest edits
-py cft.py tree|blocks|find|strings|block|calls <file.cft>    # inspect compiled script files
+py cft.py tree|blocks|find|strings|block|calls|paramset <file.cft>  # inspect compiled script files
+py cftpatch.py transplant|group|roundtrip <file.cft> ...     # move monsters/bosses between stages
+                                                             # (see Documentation/Monster and Boss Swapping.md)
 py spawn_map.py table <file.cft>                             # coordinate-indexed monster/chest table for one file
 py spawn_map.py export <cft_dir> <out.json>                  # same, dumped for every dungeon at once
 ```
