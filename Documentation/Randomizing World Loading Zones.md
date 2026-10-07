@@ -1,322 +1,283 @@
-Cleanest method for randomizing the loading zone to another stage:
-	1. Changes in `world.cft` (the loading zone and post Myrrh Drop behavior)
-	2. Changes in the `stages .cft` files (the exit zone)
-Currently skipping Kilanda due to how it's exit's work and needing to test if they are natively compatible with other stages exit methods. Also only currently doing dungeons.
+# Randomizing World Loading Zones
 
-To randomize a level, change the world.cft to reflect the new levels information, then change the level the loading zone now leads to such that it's exit pointers point to the old level's location.
+How to make a world-map spot lead to a different dungeon, and the
+randomizer option that does it. All offsets are for the NTSC-US disc and
+were verified against it.
 
----
-# 1. Changes in `world.cft` (the loading zone)
-Take these sections and paste them over the other stages section to swap their loading zone, music, world display, and post Myrrh Drop offered elements.
-## Each stage's original info and location in `mainBasha`
-- River Belle Path:
-	Starting at `0x46217` - (display info)
-		`03 00 00 00 00 03 00 00 00 06`
-	Starting at `0x46246` - (Loading zone and music)
-		`05 00 00 00 89 03 00 00 00 00 03 00 00 00 96 03 00 00 00 64 03 00 00 01 68 03 00 00 00 0D`
-- Goblin Wall:
-	Starting at `0x4717B` - (display info)
-		`03 00 00 00 01 03 00 00 00 09`
-	Starting at `0x471AA` - (Loading zone and music)
-		`05 00 00 00 8C 03 00 00 00 00 03 00 00 00 A6 03 00 00 00 74 03 00 00 01 69 03 00 00 00 0D`
-- Mines of Cathuriges:
-	Starting at `0x487F7` - (display info)
-		`03 00 00 00 02 03 00 00 00 01`
-	Starting at `0x48826` - (Loading zone and music)
-		`05 00 00 00 92 03 00 00 00 00 03 00 00 00 A4 03 00 00 00 72 03 00 00 01 6A 03 00 00 00 6E`
-- Mushroom Forest:
-	Starting at `0x48928` - (display info)
-		`03 00 00 00 03 03 00 00 00 02`
-	Starting at `0x48957` - (Loading zone and music)
-		`05 00 00 00 93 03 00 00 00 00 03 00 00 00 AE 03 00 00 00 7C 03 00 00 01 6B 03 00 00 00 6F`
-- Tida:
-	Starting at `0x4A041` - (display info)
-		`03 00 00 00 04 03 00 00 00 0C`
-	Starting at `0x4A070` - (Loading zone and music)
-		`05 00 00 00 99 03 00 00 00 00 03 00 00 00 B8 03 00 00 00 86 03 00 00 01 6C 03 00 00 00 70`
-- Moschet Manor:
-	Starting at `0x4A877` - (display info)
-		`03 00 00 00 05 03 00 00 00 03`
-	Starting at `0x4A8A6` - (Loading zone and music)
-		`05 00 00 00 9B 03 00 00 00 00 03 00 00 00 9F 03 00 00 00 6D 03 00 00 01 6D 03 00 00 00 71`
-- Veo Lu Sluice:
-	Starting at `0x4B190` - (display info)
-		`03 00 00 00 09 03 00 00 00 00`
-	Starting at `0x4B1BF` - (Loading zone and music)
-		`05 00 00 00 9E 03 00 00 00 00 03 00 00 00 B5 03 00 00 00 83 03 00 00 01 6E 03 00 00 00 72`
-- Selepation Cave: 
-	Starting at `0x4BF1B` - (display info)
-		`03 00 00 00 08 03 00 00 00 04`
-	Starting at `0x4BF5A` - (Loading zone and music)
-		`05 00 00 00 A2 03 00 00 00 00 03 00 00 00 B6 03 00 00 00 84 03 00 00 01 6F 03 00 00 00 73`
-- Deamon's Court:
-	Starting at `0x4C7DE` - (display info)
-		`03 00 00 00 07 03 00 00 00 00`
-	Starting at `0x4C7FD` - (Loading zone and music)
-		`05 00 00 00 A4 03 00 00 00 00 03 00 00 00 A5 03 00 00 00 73 03 00 00 01 70 03 00 00 00 74`
-- Conall Curach:
-	Starting at `0x4D000` - (display info)
-		`03 00 00 00 0B 03 00 00 00 00`
-	Starting at `0x4D02F` - (Loading zone and music)
-		`05 00 00 00 A6 03 00 00 00 00 03 00 00 00 9A 03 00 00 00 68 03 00 00 01 73 03 00 00 00 77`
-- Rebena Te Ra:
-	Starting at `0x4D66E` - (display info)
-		`03 00 00 00 0C 03 00 00 00 00`
-	Starting at `0x4D69D` - (Loading zone and music)
-		`05 00 00 00 A7 03 00 00 00 00 03 00 00 00 B7 03 00 00 00 85 03 00 00 01 74 03 00 00 00 78`
-- Lynari Desert: 
-	Starting at `0x4E46E` - (display info)
-		`03 00 00 00 0A 03 00 00 00 08`
-	Starting at `0x4E48D` - (Loading zone and music)
-		`05 00 00 00 AD 03 00 00 00 00 03 00 00 00 AA 03 00 00 00 78 03 00 00 01 72 03 00 00 00 76`
+A **node** is a dungeon's spot on the world map, named here by the dungeon
+that sits there in vanilla. Putting dungeon **D** on node **N** takes three
+sets of edits:
 
-## Post Myrrh Drop collection, offered elements:
-This one is a simple change (but a massive bugger to find):
-You need to change which stage location is being used as the comparator for the switch statement (if randomizing River Belle Path to Daemon's Court, replace `03 00 00 00 02` with `03 00 00 00 2E`):
+1. `world.cft`: node N's display and loading-zone blocks get D's values,
+   and for 1- and 2-element nodes the Myrrh-drop check uses D's completion
+   flag.
+2. `world.cfd`: for 1- and 2-element nodes, the post-clear menu shows D's
+   name.
+3. D's own `.cft` files: every exit sends the caravan back to node N.
 
-**`MJ_SWING_ATTRIB_1`** (anchor `0x3346B`) — handles exactly the 4 stages we know use it:
+What stays with the node: its `MJ_SWING_*` variant, the elements offered
+after a Myrrh drop, and whatever gates reaching it (Miasma Streams, Goblin
+Wall's Year-2 visibility). So element progression works like vanilla, and
+only the dungeon you enter changes.
 
-| Case addr | Value  | Original Zone       |
-| --------- | ------ | -------------------- |
-| `0x33471` | `0x11` | Mushroom Forest     |
-| `0x334AC` | `0x10` | Mines of Cathuriges |
-| `0x334E7` | `0x2B` | Selepation Cave     |
-| `0x33522` | `0x51` | Lynari Desert       |
+**Not included:** Mount Kilanda, which is entered through four 4-argument
+`MJ_SWING` calls and whose exits work differently, and Mount Vellenge.
 
-**`MJ_SWING_ATTRIB_2`** (anchor `0x3312B`) — handles exactly the 4 stages you and I have been testing with:
+## Using it in the randomizer (EXPERIMENTAL)
 
-| Case addr | Value  | Original Zone    |
-| --------- | ------ | ---------------- |
-| `0x33131` | `0x02` | River Belle Path |
-| `0x33178` | `0x07` | Goblin Wall      |
-| `0x331BF` | `0x17` | Tida             |
-| `0x33206` | `0x1A` | Moschet Manor    |
-- 02 - River Belle Path 
-- 07 - Goblin Wall
-- 10 - Mines of Cathuriges
-- 11 - Mushroom Forest
-- 17 - Tida
-- 1A - Moschet Manor 
-- 21 - Veo Lu Sluice
-- 2B - Selepation Cave
-- 2E - Daemon's Court 
-- 34 - Conall Curach
-- 36 - Rebena Te Ra
-- 51 - Lynari Desert
-## Misc info
-(Arguments come before the opcode)
+- **GUI:** tick "Randomize world-map loading zones".
+- **Command line:** `py randomizer.py run <iso> --seed N --randomize-world-zones`
+- **JSON:** Export writes the current layout:
 
-WM_mapInfoDispOn (FF FF 02 4A)
-	03 00 00 00 DD <- Stage info display name and Myrrh status (bubble display)
-	03 00 00 00 EE <- Stage elements (bubble display (probably want to keep this patterned as the original stage to show the after available?)
-03 00 00 00 03 
-03 00 00 FF FF <- x pos on screen (don't change)
-03 00 00 00 GG <- y pos on screen (don't change)
-0A FF FF 02 4A
+  ```json
+  "_randomize_world_zones": false,
+  "_world_zones": { "River Belle Path": "River Belle Path", "Goblin Wall": "Goblin Wall", ... },
+  "_world_zone_choices": [ "River Belle Path", "Goblin Wall", ... ]
+  ```
 
-MJ_SWING_ATTRIBUTE_2/ATTRIBUTE_1/PADCHECK
-	05 00 00 00 ==XX== <- Stage STR .cft index (controls which stage loads)
-	03 00 00 00 00 <- Always empty
-	03 00 00 00 ==MM== <- Music pt.1 for stage (stage specific, not randomizable currently)
-	03 00 00 00 ==NN== <- Music pt.2 for stage (stage specific, not randomizable currently)
-03 00 00 01 ==YY== <- ??? (index of sorts? it always increases by 1 (Kilanda is skipped as 71))
-03 00 00 00 ==ZZ== <- ??? (also increases by one, except for River Belle Path and Goblin Wall)
-03 00 00 00 00
-03 00 00 00 00
-0A FF FF 02 52/3/4
-# 2. Changes in the stages .cft files (the exit zone) (TODO)
-In each stages .cft files, replace the `0A FF FF 01 9B 0C 01 00 00 3D 09 03 00 00 00 <ID>` with the exit code for the location on the world it was randomized to.
-- 02 - River Belle Path 
-- 07 - Goblin Wall
-- 10 - Mines of Cathuriges
-- 11 - Mushroom Forest
-- 17 - Tida
-- 1A - Moschet Manor 
-- 21 - Veo Lu Sluice
-- 2B - Selepation Cave
-- 2E - Daemon's Court 
-- 34 - Conall Curach
-- 36 - Rebena Te Ra
-- 51 - Lynari Desert
+  Each key is a node, and each value is the dungeon it leads to. Change a
+  value to any name in `_world_zone_choices` to place that dungeon there.
+  An entry naming the node's own dungeon means "no preference".
+  - Without `_randomize_world_zones`, the rest of the map is completed so
+    each dungeon appears exactly once. If one node is changed and nothing
+    else is, the result is a swap.
+  - With `_randomize_world_zones: true`, the dungeons you didn't place are
+    shuffled among the remaining nodes.
 
-This prevents the world from desynching where it thinks the caravan is VS where it actually is, bricking the players ability to move.
+The layout is written to the spoiler file. The source ISO's zones must still
+be vanilla; re-applying the same layout does nothing.
 
-- River Belle Path
-	In `river_0` (Stage Exit):
-		ID at `0x2C57F`
-		ID at `0x344D6`
-	In `river_1` (Post Boss Exit):
-		ID at `0x262C1`
-		ID at `0x33600`
-- Goblin Wall
-	In `gob_0` (Stage Exit):
-		ID at `0x29F2F`
-		ID at `0x32096`
-	In `gob_1` (Teleport from Hot Spot?):
-		ID at `0x312A6`
-	In `gob_2` (Post Boss Exit):
-		ID at `0x347E1`
-- Mines of Cathurgies
-	In `mine_0` (Stage Exit):
-		ID at `0x297D7`
-		ID at `0x31786`
-	In `mine_1`:
-		ID at `0x2F916`
-	In `mine_2`:
-		ID at `0x2FA86`
-	In `mine_3` (Post Boss Exit):
-		ID at `0x35522`
-- Mushroom Forest
-	In `kinoko_0` (Stage Exit):
-		ID at `0x2CB53`
-		ID at `0x34B16`
-	In `kinoko_1` (Post Boss Exit):
-		ID at `0x34EAD`
-- Tida
-	In `ruin_0` (Stage Exit):
-		ID at `0x2BA42`
-		ID at `0x33A20`
-	In `ruin_1`:
-		ID at `0x32880`
-	In `ruin_2` (Post Boss Exit):
-		ID at `0x34AE2`
-- Moschet Manor
-	In `gigas_0` (Stage Exit):
-		ID at `0x279D9`
-		ID at `0x2FCE6`
-	In `gigas_1`:
-		ID at `0x28D16`
-	In `gigas_2`:
-		ID at `0x2AEF6`
-	In `gigas_3`:
-		ID at `0x2AF86`
-	In `gigas_4`:
-		ID at `0x2B6F6`
-	In `gigas_5`:
-		ID at `0x2A2B6`
-	In `gigas_6`:
-		ID at `0x2BB86`
-	In `gigas_7`:
-		ID at `0x29FA6`
-	In `gigas_8` (Post Boss Exit):
-		ID at `0x34E89`
-- Veo Lu Sluice
-	In `water_0` (Stage Exit):
-		ID at `0x2D6B3`
-		ID at `0x355C6`
-	In `water_1` (Post Boss Exit):
-		ID at `0x341A3`
-- Selepation Cave
-	In `cave_0` (Stage Exit):
-		ID at `0x2A63F`
-		ID at `0x32776`
-	In `cave_1`:
-		ID at `0x2EED6`
-	In `cave_2` (Post Boss Exit):
-		ID at `0x336C7`
-- Daemon's Court
-	In `fort_0` (Stage Exit):
-		ID at `0x2B057`
-		ID at `0x322F36`
-	In `fort_1` (Post Boss Exit):
-		ID at `0x35CA5`
-- Conall Curach
-	In `swamp_0` (Stage Exit):
-		ID at `0x28AB3`
-		ID at `0x30AB6`
-	In `swamp_1`:
-		ID at `0x30EF6`
-	In `swamp_2`:
-		ID at `0x2F146`
-	In `swamp_3` (Post Boss Exit):
-		ID at `0x341DB`
-- Rebena Te Ra
-	In `city_0` (Stage Exit):
-		ID at `0x2B68B`
-		ID at `0x338B6`
-	In `city_1`:
-		ID at `0x338F6`
-	In `city_2` (Post Boss Exit):
-		ID at `0x35721`
-- Lynari Desert
-	In `desert_0` (Stage Exit):
-		ID at `0x29ADB`
-		ID at `0x31D56`
-	In `desert_1`:
-		ID at `0x2EAB6`
-	In `desert_2` (Post Boss Exit):
-		ID at `0x349D6`
+**Stage-key locks follow the dungeons.** Each dungeon's key check moves to
+the call of the node it now sits on, using that node's own `MJ_SWING`
+variant. The node that hosts River Belle Path (never locked) is left open.
+
+**Not for Archipelago seeds.** The apworld's logic assumes each dungeon is
+at its vanilla node.
+
+**Code:** `worldzones.py` (`apply_plan`, `status`, `random_plan`,
+`complete_plan`, `stage_lock_sites`).
 
 ---
-# 3. How these offsets were found (verified 2026-09-15)
 
-Every offset above was independently re-derived from a clean ISO's `world.cft`
-and the individual dungeon `.cft` files using this repo's `cft.py`
-disassembler, and every single one matched byte-for-byte (20+ spot checks
-across `world.cft` and 6 different dungeons). Three distinct patterns are in
-play, and each has its own repeatable discovery method:
+## 1. `world.cft`
 
-## a) The "display info" + "loading zone" blocks
+### Display and loading-zone blocks (in `mainBasha`)
 
-Both live inside `world.cft`'s single giant `mainBasha` function, right
-before that stage's own call to `WM_mapInfoDispOn` (name/elements bubble)
-and `MJ_SWING_ATTRIBUTE_2`/`_1`/`PADCHECK` (the actual warp). To find them
-from scratch:
+Each node has a **display block** (arguments to `WM_mapInfoDispOn`: the name
+and Myrrh bubble) and a **zone block** (arguments to its `MJ_SWING_*` call:
+which stage loads, and its music). Copy D's blocks over node N's.
 
-1. `python cft.py blocks world.cft` / inspect the `FUNC` table to find
-   `mainBasha`'s index, then get its code with `code_abs_offset()` +
-   `_code_of()` (both already in `cft.py`).
-2. Disassemble the whole function with `disasm()` and scan for every `CALL`
-   whose target resolves to `WM_mapInfoDispOn` or `MJ_SWING_ATTRIBUTE_2`
-   (matching on the `arg & 0xFFFF` FUNC-table index, same technique
-   `cmd_calls()` already uses).
-3. The literal `PUSHI` values pushed in the ~5 instructions immediately
-   before each call ARE the "display info"/"loading zone" blocks verbatim -
-   confirmed directly, e.g. for River Belle Path:
-   ```
-   @0x86a7  PUSHI 0     <- display name index (DD)
-   @0x86ac  PUSHI 6     <- elements index (EE)
-   @0x86b1  PUSHI 3     <- constant, always 3
-   @0x86b6  PUSHI 180   <- x pos (leave alone)
-   @0x86bb  PUSHI 220   <- y pos (leave alone)
-   @0x86c0  CALL WM_mapInfoDispOn
-   ```
-   These are genuinely hardcoded per-stage literals, not derived from the
-   loading-zone ID at runtime - so the "display info" pair has to be
-   swapped along with the loading-zone block, exactly as this doc's top
-   instruction already says ("swap their loading zone, music, **world
-   display**, and post Myrrh Drop offered elements"). This was checked
-   directly and confirmed: **no separate string-table edit is needed** -
-   copying the destination stage's own 2-value "display info" block (which
-   this doc already lists per stage) is the complete fix. The one thing
-   NOT checked here: any OTHER in-game text (NPC dialogue, quest logs)
-   that might name a stage by name outside this bubble - if a scripted
-   line elsewhere says "go to Goblin Wall" by name, that's a separate,
-   unexplored text source.
-
-## b) The stage-exit ID bytes (in each dungeon's own `.cft`)
-
-These sit at the END of a fixed 16-byte signature, not the start - a common
-mistake when searching for them. The pattern is:
 ```
-0A FF FF 01 9B 0C 01 00 00 3D 09 03 00 00 00 <ID>
+display  03 000000 DD  03 000000 EE                      DD = display index, EE = elements shown
+zone     05 000000 XX  03 000000 00  03 000000 MM  03 000000 NN  03 000001 YY  03 000000 ZZ
+         XX = stage script (STR index), MM/NN = music, YY/ZZ = unknown (both rise by 1 per stage)
 ```
-i.e. search each dungeon file for the 15-byte prefix
-`0AFFFF019B0C0100003D0903000000` (hex, no spaces) - the very next byte is
-the destination stage ID. Confirmed this reads back that dungeon's OWN ID
-in vanilla (e.g. every one of River Belle Path's 4 exit records currently
-reads `0x02`, Goblin Wall's read `0x07`, Lynari Desert's read `0x51`) -
-i.e. in an unmodified ISO every stage's exits point at itself, which is
-exactly what you'd expect for "where do I resume when the world reloads."
 
-## c) The Myrrh-drop switch-case values (`MJ_SWING_ATTRIB_1`/`_2`)
+The node's `MJ_SWING_*` call is 40 bytes after the start of its zone block
+(after two more `03 00000000` pushes).
 
-These are a standard CFlat switch/case in `world.cft`, using the same
-opcode table `cft.py` already documents (`0x3a`=DUP, `0x03`=PUSHI,
-comparisons `0x2c`-`0x37`). Disassembling either function shows the
-pattern `DUP; PUSHI <caseValue>; CMP; JZ <nextCase>` repeated once per
-stage. The doc's "case addr" column is the position of the `PUSHI` opcode
-itself; the actual comparison value is the LOW byte of that instruction's
-4-byte argument, i.e. `case_addr + 4` (opcode is 1 byte, then 3 zero bytes,
-then the value byte, since all these stage IDs are under 256). Confirmed
-all 8 values (4 per function) exactly match the doc's table this way.
+| Dungeon | Display @ | DD | EE | Zone @ | XX | MM | NN | YY | ZZ | Call | Variant |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| River Belle Path | `0x46217` | 00 | 06 | `0x46246` | 89 | 96 | 64 | 68 | 0D | `0x4626E` | ATTRIB_2 |
+| Goblin Wall | `0x4717B` | 01 | 09 | `0x471AA` | 8C | A6 | 74 | 69 | 0D | `0x471D2` | ATTRIB_2 |
+| Mine of Cathuriges | `0x487F7` | 02 | 01 | `0x48826` | 92 | A4 | 72 | 6A | 6E | `0x4884E` | ATTRIB_1 |
+| Mushroom Forest | `0x48928` | 03 | 02 | `0x48957` | 93 | AE | 7C | 6B | 6F | `0x4897F` | ATTRIB_1 |
+| Tida | `0x4A041` | 04 | 0C | `0x4A070` | 99 | B8 | 86 | 6C | 70 | `0x4A098` | ATTRIB_2 |
+| Moschet Manor | `0x4A877` | 05 | 03 | `0x4A8A6` | 9B | 9F | 6D | 6D | 71 | `0x4A8CE` | ATTRIB_2 |
+| Veo Lu Sluice | `0x4B190` | 09 | 00 | `0x4B1BF` | 9E | B5 | 83 | 6E | 72 | `0x4B1E7` | PADCHECK |
+| Selepation Cave | `0x4BF2B` | 08 | 04 | `0x4BF5A` | A2 | B6 | 84 | 6F | 73 | `0x4BF82` | ATTRIB_1 |
+| Daemon's Court | `0x4C7CE` | 07 | 00 | `0x4C7FD` | A4 | A5 | 73 | 70 | 74 | `0x4C825` | PADCHECK |
+| Conall Curach | `0x4D000` | 0B | 00 | `0x4D02F` | A6 | 9A | 68 | 73 | 77 | `0x4D057` | PADCHECK |
+| Rebena Te Ra | `0x4D66E` | 0C | 00 | `0x4D69D` | A7 | B7 | 85 | 74 | 78 | `0x4D6C5` | PADCHECK |
+| Lynari Desert | `0x4E45E` | 0A | 08 | `0x4E48D` | AD | AA | 78 | 72 | 76 | `0x4E4B5` | ATTRIB_1 |
+
+Variants: `MJ_SWING_ATTRIB_2` (function 594) is for 2-element nodes,
+`MJ_SWING_ATTRIB_1` (595) for 1-element nodes, and `MJ_SWING_PADCHECK` (593)
+for the rest. For reference, Mount Kilanda's display index is 06 and Mount
+Vellenge's is 0D.
+
+### Myrrh-drop completion check (1- and 2-element nodes)
+
+`MJ_SWING_ATTRIB_1` and `_2` each have a switch on the node's world param.
+Each case stores the dungeon's **completion flag** into `this[40]` and later
+reads event flag `sysval[-2547 + this[40]]`, i.e. **event flag number
+`this[40]`**, which the engine sets when the dungeon is cleared.
+
+**Completion flag = 200 + the dungeon's display index (DD).** All 8 values
+used in vanilla fit this rule, and so does Mount Vellenge (D5):
+
+| Flag | Dungeon | Flag | Dungeon |
+|---|---|---|---|
+| C8 | River Belle Path | CF | Daemon's Court |
+| C9 | Goblin Wall | D0 | Selepation Cave |
+| CA | Mine of Cathuriges | D1 | Veo Lu Sluice |
+| CB | Mushroom Forest | D2 | Lynari Desert |
+| CC | Tida | D3 | Conall Curach |
+| CD | Moschet Manor | D4 | Rebena Te Ra |
+| CE | Mount Kilanda | D5 | Mount Vellenge |
+
+When D goes on an ATTRIB node, write D's flag at the node's case:
+
+| Node | Byte @ | Vanilla |
+|---|---|---|
+| River Belle Path (ATTRIB_2) | `0x33146` | C8 |
+| Goblin Wall (ATTRIB_2) | `0x3318D` | C9 |
+| Tida (ATTRIB_2) | `0x331D4` | CC |
+| Moschet Manor (ATTRIB_2) | `0x3321B` | CD |
+| Mushroom Forest (ATTRIB_1) | `0x33486` | CB |
+| Mine of Cathuriges (ATTRIB_1) | `0x334C1` | CA |
+| Selepation Cave (ATTRIB_1) | `0x334FC` | D0 |
+| Lynari Desert (ATTRIB_1) | `0x33537` | D2 |
+
+Each case's structure, for reference (River Belle Path node):
+
+```
+3A  03 000000 02  2C  08 <next>  0C             switch case: world node 0x02
+01 00002819  03 000000 C8  0D 0C                this[40] = completion flag
+01 00002919  03 000000 02  0D 0C                this[41] = offered element 1
+01 00002A19  03 000000 04  0D 0C                this[42] = offered element 2 (ATTRIB_2 only)
+01 00002B19  03 0000013B   0D 0C                this[43] = world.cfd display template
+07 <exit>
+```
+
+## 2. `world.cfd`: post-clear menu name (1- and 2-element nodes)
+
+**Name value = 0x20 + the dungeon's display index**:
+
+| Value | Dungeon | Value | Dungeon |
+|---|---|---|---|
+| 20 | River Belle Path | 27 | Daemon's Court |
+| 21 | Goblin Wall | 28 | Selepation Cave |
+| 22 | Mine of Cathuriges | 29 | Veo Lu Sluice |
+| 23 | Mushroom Forest | 2A | Lynari Desert |
+| 24 | Tida | 2B | Conall Curach |
+| 25 | Moschet Manor | 2C | Rebena Te Ra |
+| 26 | Mount Kilanda | 2D | Mount Vellenge |
+
+| Node | Byte @ | Vanilla |
+|---|---|---|
+| River Belle Path | `0x13A6B` | 20 |
+| Goblin Wall | `0x13AD9` | 21 |
+| Tida | `0x13B47` | 24 |
+| Moschet Manor | `0x13BB5` | 25 |
+| Mushroom Forest | `0x13C06` | 23 |
+| Mine of Cathuriges | `0x13C56` | 22 |
+| Selepation Cave | `0x13CA6` | 28 |
+| Lynari Desert | `0x13CF7` | 2A |
+
+## 3. The dungeon's exits
+
+Every exit in D's own `.cft` files names the world param of the node the
+caravan returns to. Change D's param to node N's everywhere, or the world
+map desyncs from where the caravan is and it can't move.
+
+World params: River Belle Path `02`, Goblin Wall `07`, Mine of Cathuriges
+`10`, Mushroom Forest `11`, Tida `17`, Moschet Manor `1A`, Veo Lu Sluice
+`21`, Selepation Cave `2B`, Daemon's Court `2E`, Conall Curach `34`, Rebena
+Te Ra `36`, Lynari Desert `51`.
+
+Two patterns (`ID` = the world param):
+
+```
+stage exit      01 00 00 3D 09 03 00 00 00 ID 0D 0C 04 00 00 00 00 0A FF FF 00 28 0C
+post-boss exit  03 00 00 00 ID 0D 0C 03 00 00 00 1E 0A FF FF 00 01 0C
+```
+
+Every area file has stage exits, **including boss rooms**, and the boss room
+also has the post-boss exit. `worldzones.py` finds them all by pattern scan.
+The offsets of the ID byte:
+
+| Dungeon | Stage exits | Boss room |
+|---|---|---|
+| River Belle Path | river_0 `0x2C57F`, `0x344D6` | river_1 `0x262C1`, `0x33600`; post-boss `0x54A9F` |
+| Goblin Wall | gob_0 `0x29F2F`, `0x32096`; gob_1 `0x312A6` | gob_2 `0x347E1`; post-boss `0x57C09` |
+| Mine of Cathuriges | mine_0 `0x297D7`, `0x31786`; mine_1 `0x2F916`; mine_2 `0x2FA86` | mine_3 `0x35522`; post-boss `0x58F1F` |
+| Mushroom Forest | kinoko_0 `0x2CB53`, `0x34B16` | kinoko_1 `0x34EAD`; post-boss `0x58042` |
+| Tida | ruin_0 `0x2BA42`, `0x33A20`; ruin_1 `0x32880` | ruin_2 `0x34AE2`; post-boss `0x59202` |
+| Moschet Manor | gigas_0 `0x279D9`, `0x2FCE6`; gigas_1 `0x28D16`; gigas_2 `0x2AEF6`; gigas_3 `0x2AF86`; gigas_4 `0x2B6F6`; gigas_5 `0x2A2B6`; gigas_6 `0x2BB86`; gigas_7 `0x29FA6` | gigas_8 `0x34E89`; post-boss `0x5B9ED` |
+| Veo Lu Sluice | water_0 `0x2D6B3`, `0x355C6` | water_1 `0x341A3`; post-boss `0x5900E` |
+| Selepation Cave | cave_0 `0x2A63F`, `0x32776`; cave_1 `0x2EED6` | cave_2 `0x336C7`; post-boss `0x594DB` |
+| Daemon's Court | fort_0 `0x2B057`, `0x32F36` | fort_1 `0x35CA5`; post-boss `0x5A25E` |
+| Conall Curach | swamp_0 `0x28AB3`, `0x30AB6`; swamp_1 `0x30EF6`; swamp_2 `0x2F146` | swamp_3 `0x341DB`; post-boss `0x592C1` |
+| Rebena Te Ra | city_0 `0x2B68B`, `0x338B6`; city_1 `0x338F6` | city_2 `0x35721`; post-boss `0x59D9B` |
+| Lynari Desert | desert_0 `0x29ADB`, `0x31D56`; desert_1 `0x2EAB6` | desert_2 `0x349D6`; post-boss `0x5A848` |
+
+River Belle Path's boss room is the only one with two stage exits.
+
+## Worked example: swap River Belle Path and Conall Curach
+
+This is exactly what `worldzones.py` writes for this swap (checked against
+the disc):
+
+- `world.cft`:
+  - River Belle Path node: display → `03 000000 0B 03 000000 00`, zone →
+    Conall Curach's (`05 000000 A6 … 03 000000 77`), completion byte
+    `0x33146` C8 → **D3**.
+  - Conall Curach node: display and zone → River Belle Path's. It's a
+    PADCHECK node, so there's no completion byte.
+- `world.cfd`: `0x13A6B` 20 → **2B** (Conall Curach).
+- Conall Curach's exits `34` → `02`: swamp_0 `0x28AB3`, `0x30AB6`; swamp_1
+  `0x30EF6`; swamp_2 `0x2F146`; swamp_3 `0x341DB`, `0x592C1`.
+- River Belle Path's exits `02` → `34`: river_0 `0x2C57F`, `0x344D6`;
+  river_1 `0x262C1`, `0x33600`, `0x54A9F`.
+
+## Corrections to earlier notes
+
+- **Completion flags:** Veo Lu Sluice is **D1** and Mount Kilanda **CE**. Earlier notes had them swapped. The worked example's ATTRIB edit is **C8 → D3**, not "20 → 2B".
+- **Menu names:** Conall Curach is **2B** and Rebena Te Ra **2C**. Value `28` is Selepation Cave, not the Mine.
+- **Display offsets:**
+  - Selepation Cave is `0x4BF2B` (not `0x4BF1B`).
+  - Daemon's Court is `0x4C7CE` (not `0x4C7DE`).
+  - Lynari Desert is `0x4E45E` (not `0x4E46E`).
+- **Daemon's Court exit:** its second exit is `0x32F36` (not `0x322F36`).
+- **Post-boss exit pattern:** it has a `0D` store before the `0C`.
+- **Boss-room stage exits:** boss rooms also contain ordinary stage exits, which need patching too.
+
+## Stage keys and Mount Kilanda (fixed)
+
+Earlier versions of the stage-key feature listed Mount Kilanda's lock site
+as `0x4E33A` (stage id 172). That call is actually a **Leuda** stop
+(`thief_0`), so Leuda asked for the Kilanda Key and Mount Kilanda wasn't
+locked.
+
+Mount Kilanda is entered through four 4-argument `MJ_SWING` calls (STR 174,
+181, 184, 187 at `0x4E931`, `0x4F1E7`, `0x4F675`, `0x4FA83`), which the main
+8-argument dispatcher (`encountKaido`) can't take. They now have their own
+dispatcher: `world.cft`'s copy of the library function `dropItem_fromNpc`
+(function 426), which the world map never calls, is rewritten to take 4
+arguments, check the Kilanda Key (`0xEE`), and forward them to `MJ_SWING`
+(592). All four entrances call it instead. The Leuda stop is left vanilla,
+and an ISO made with the old version gets it put back. See
+`_patch_kilanda_and_leuda()` in `randomizer.py`.
+
+## World-map buildings (icons)
+
+Each world-map stop's building is a flat card (picture plus ground shadow):
+one mesh part in `dvd/map/stg033/map000_0.mpl`. Its picture is one 128x128
+cell of a 4x4 plate texture in `map000_0.mtx`: material 4 = `w7_plate`
+(plate 1), material 5 = `w13_plate2` (plate 2). The part's UVs pick the cell.
+They are signed 16-bit with 1024 = one texture width (256 = one cell), and v
+is negative and wraps:
+
+    col = (u % 1024) // 256
+    row = 3 - ((-v_max // 256) % 4)
+
+`Start.dol`'s crest table (DOL offset `0x1D8214`, RAM `0x801DB214`, also used
+by the save screen) lists each place's cell as `[plate, col, row, 0]`, indexed
+by the dungeon's display index DD. Mesh part per stop:
+
+| Stop | Part | Stop | Part |
+|---|---|---|---|
+| River Belle Path | 3 | Veo Lu Sluice | 12 |
+| Goblin Wall | 25 | Selepation Cave | 16 |
+| Mine of Cathuriges | 7 | Daemon's Court | 17 |
+| Mushroom Forest | 5 | Conall Curach | 18 |
+| Tida | 10 | Rebena Te Ra | 19 |
+| Moschet Manor | 11 | Lynari Desert | 22 |
+
+To show another dungeon's building, shift all of the part's UVs by the cell
+difference (`u += dcol*256`, `v += drow*256`) and, if the cell is on the
+other plate, set the display list's material (first 2 bytes of its `DLST`)
+to 4 or 5. The file size doesn't change. `worldzones.apply_icons()` does this
+for a zone plan, and `icon_status()` reads back which building each stop shows.
+Confirmed in game (Tipa's stop showing River Belle Path's building).

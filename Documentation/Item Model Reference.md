@@ -26,7 +26,8 @@ actually exist in the disc.
   point at this mesh id but aren't in this repo's curated item-name table
   (`ffcc_items.py`) - mostly recipes/scrolls (0x191-0x1ed) and internal
   spell/effect definition rows (the ~0x1f5+ range used by the Ring
-  spell-indirection mechanism - see `project_ffcc_artifact_effects.md`).
+  spell-indirection mechanism - see
+  [Adding Custom Items and Artifacts.md](Adding%20Custom%20Items%20and%20Artifacts.md)).
   These aren't world-droppable collectibles, so their model field is
   likely inherited from a template and not meaningful - don't read anything
   into which mesh they point at.
@@ -182,7 +183,7 @@ actually exist in the disc.
 - **Model 0** (not in this table - no `f000` mesh exists) is the sentinel
   most armor/tribal/accessory equipment uses: these categories are never
   seen as world pickups with a unique shape, consistent with
-  `project_ffcc_artifact_effects.md`'s finding that only weapons ever get a
+  the finding (see Adding Custom Items and Artifacts.md) that only weapons ever get a
   distinct rendered mesh.
 - Plain-text mesh ids with **no gaps in the 1-138 range being "reserved"**
   in any obvious pattern (unused ids are scattered individually, not in one

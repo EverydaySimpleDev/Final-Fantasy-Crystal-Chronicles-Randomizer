@@ -390,6 +390,7 @@ py cftpatch.py transplant|group|roundtrip <file.cft> ...     # move monsters/bos
                                                              # (see Documentation/Monster and Boss Swapping.md)
 py spawn_map.py table <file.cft>                             # coordinate-indexed monster/chest table for one file
 py spawn_map.py export <cft_dir> <out.json>                  # same, dumped for every dungeon at once
+py spawn_map.py blender <file.cft> <out.py> [--axes x,-z,y]   # Blender script labelling every monster/chest (entry, drop, cycles)
 ```
 
 ---

@@ -7,7 +7,7 @@ a = Analysis(
     binaries=[],
     datas=[('assets', 'assets')],
     # imported inside functions (boss shuffle); listed so they're always bundled
-    hiddenimports=['bossshuffle', 'cftpatch'],
+    hiddenimports=['bossshuffle', 'cftpatch', 'worldzones', 'progression', 'chestflags', 'treasure', 'spawn_map', 'lootcft'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

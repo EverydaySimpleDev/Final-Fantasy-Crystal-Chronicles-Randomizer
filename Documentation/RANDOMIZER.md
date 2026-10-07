@@ -123,6 +123,24 @@ sell**, so every price stays plausible and valid — Bronze might cost what Myth
 did, etc. It works with or without item randomization. (The 0xFFFF "not for sale"
 items are left alone.)
 
+**Stock across years.** Some shops sell more as the story progresses, and
+this never happens at random or on a cycle:
+
+| Shop | What changes its stock |
+|---|---|
+| Tipa | 4 tiers following the village's house-growth level (`m_eventWork[120]`). It can only go up, at most once per year change, when a score passes 40 or 80. |
+| Leuda | a lower and higher tier for scrolls and for materials, chosen by Leuda's event state (`m_eventWork[110]`) |
+| Shella | a small special stock (Strange Liquid, Shella Mark) during an event |
+| Alfitaria, Fields of Fum, Smith, Selkie Peddler | fixed (the Selkie Peddler always sells Tipa's first tier) |
+
+In vanilla each later tier keeps the earlier tier's items and adds more (the
+only exception is Spring Water, which leaves Tipa's final tier). Randomization
+keeps that: within each shop, every vanilla item is replaced by the **same**
+random item in every tier. So something you saw on sale in an early year
+stays on sale later, and new stock only gets added. All tiers are in the
+shared `shopStart` script function, cases 0–43; each shop calls its own
+cases.
+
 In the GUI, on the Randomizer tab tick **"Randomize shop inventories"** (and pick
 all shops or specific ones) and/or **"Randomize shop prices"**. (Per-class
 restriction for items is planned for the future.)
@@ -174,6 +192,21 @@ has one or more area files `_0`, `_1`, …):
 - After patching, if any cycle ends up with **more than 4 artifacts** (the
   player's carry limit) you get a warning per dungeon/cycle. The patch still
   applies — you're in control — but it flags the over-limit cycle.
+- **The JSON's chest data is always written exactly as given.** Nothing else
+  in the import overwrites it:
+  - With `"_stage_key_locks": true`, the keys are placed *after* the chest
+    data, and only into chests the JSON left unchanged. An entry that still
+    holds what the ISO already has counts as "no preference", so an
+    unedited export works and your edited chests are never touched.
+  - `"_protect_required_stones"` (default `true`) keeps the magicite needed
+    for Holy (Lich, Zombie Dragon) and Tida's Fire out of stage-key
+    placement and warns if the patched ISO is missing those stones. It
+    never changes the JSON's chest data. Set it to `false` to turn both off.
+    The GUI checkbox "Keep required magicite obtainable" and the CLI flag
+    `--no-stone-protection` control the same protection for random runs.
+- The Archipelago modes (`ap-patch`, `ap-hybrid` / "Patch for Archipelago")
+  only write the AP placements into chest sets; the protections and stage
+  keys don't run there.
 
 ---
 
@@ -315,14 +348,21 @@ py cft.py tree|blocks|find|strings|block|calls <file.cft>    # inspect compiled 
   and Rebena Te Ra. Dungeons span **multiple area files** (`_0`, `_1`, …) and the
   randomizer processes every area, with the 4-artifacts-per-cycle cap applied
   **across the whole dungeon** (all its areas combined).
+- **Fire is always obtainable in Tida.** Spider webs block the path there and
+  only Fire clears them, so Tida's magicite sets are kept vanilla the same way
+  as the Holy dungeons below (Tida's field areas have Fire stone sets), and
+  `check_stone_access()` warns if Tida ends up without a Fire set. The list
+  lives in `FIRE_DUNGEONS` in `randomizer.py`. In Archipelago the apworld
+  already requires the Ring of Fire for Tida.
 - **Holy is always obtainable where a boss needs it.** Lich (Rebena Te Ra) and
   Zombie Dragon (Conall Curach) take 1 damage until hit with Holy. Holy isn't
-  a droppable stone: it's cast by fusing a **Stone of Life** with a Fire,
-  Blizzard or Thunder stone. Stones don't carry between dungeons, so both
+  a droppable stone: it's cast by fusing a Fire, Blizzard or Thunder stone
+  followed by a **Stone of Life**, in that order (Life first gives Slow; see
+  `Item Records and Magic Fusion.md`). Stones don't carry between dungeons, so both
   must be found in that dungeon. The randomizer therefore never randomizes
   those two dungeons' magicite sets (the per-element stone spawn/drop tables),
   and never uses them for stage keys. Every other set there is still
-  randomized. After patching, `check_holy_access()` confirms each dungeon
+  randomized. After patching, `check_stone_access()` confirms each dungeon
   still has a Life set and an element set, and prints a warning if not. With
   the experimental boss shuffle, the protection follows Lich and Zombie Dragon
   to whichever dungeons they end up in (`HOLY_BOSS_DUNGEONS` in

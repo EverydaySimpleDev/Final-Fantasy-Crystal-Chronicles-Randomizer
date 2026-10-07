@@ -18,8 +18,11 @@ Commands:
     python items.py set  <param.cfd> <id> <field|0xOFF[:1|2]> <value>
 
 Named fields (offset,size): type(0,2) model(2,2) equiptype(4,1)
-    equipability(5,1) value(6,2) status(8,2) focus(10,2) gfxsize(16,2)
-    gil(32,2)  - or address any byte with 0xOFF[:size], e.g. 0x06:2
+    equipability(5,1) value(6,2) status/bonus(8,2) focus/spell(10,2)
+    gfxsize(16,2) gil(32,2); scroll recipes: craftgil mat1-3 qty1-3
+    clavat lilty yuke selkie; spells/focus attacks: chargetime range
+    - or address any byte with 0xOFF[:size], e.g. 0x06:2
+Full per-category layout: Documentation/Item Records and Magic Fusion.md
 """
 
 import sys
@@ -35,7 +38,15 @@ SIG = bytes.fromhex("000100010101")
 FIELDS = {
     "type": (0, 2), "model": (2, 2), "equiptype": (4, 1), "equipability": (5, 1),
     "value": (6, 2), "damage": (6, 2), "defense": (6, 2), "status": (8, 2),
+    "bonus": (8, 2),                      # armor/shield/gauntlet/helm/belt/accessory
     "focus": (10, 2), "spell": (10, 2), "gfxsize": (16, 2), "gil": (32, 2),
+    # scrolls (type 0x0191): crafting recipe
+    "craftgil": (0x24, 2),
+    "mat1": (0x26, 2), "mat2": (0x28, 2), "mat3": (0x2A, 2),
+    "qty1": (0x2C, 2), "qty2": (0x2E, 2), "qty3": (0x30, 2),
+    "clavat": (0x38, 2), "lilty": (0x3A, 2), "yuke": (0x3C, 2), "selkie": (0x3E, 2),
+    # spells (0x01F5) / focus attacks (0x01F8)
+    "chargetime": (0x2E, 2), "range": (0x30, 2),
 }
 
 

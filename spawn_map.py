@@ -12,14 +12,28 @@ Record layouts (fields after monster_id/const, see cft.py's disasm()):
 `A` (chests) and `E` (monsters) are both CONFIRMED get_treasure indices -
 swapping either between two records swaps what they drop (each index has 4
 item slots, matching PutDropItem's m_dropItemCodes[4]). `C`/`D`/`B` are not
-yet fully understood - see the project's own memory notes / research docs for
-the latest findings; this module reports them as raw fields rather than
+yet fully understood - see the research docs in Documentation/ for the
+latest findings; this module reports them as raw fields rather than
 guessing at a meaning.
+
+Each record also gets an `entry` number: its position in that area file's
+SPAWN_MONSTER, counted separately for monsters and chests. Area file + entry
+identifies one placed monster/chest (a natural ID for kill/chest checks).
+
+Coordinates: `x`/`y`/`z` are the literal values as stored. Negative
+coordinates are compiled as PUSHF |v| followed by opcode 0x2B (float
+negate), so those fields read unsigned; `world` has the true signed world
+position (what the engine and live RAM use).
 
 Workflow:
     python gciso.py extractall "Hacked Rom.iso" ../dungeon_cfts   # once
     python spawn_map.py table river_0.cft
     python spawn_map.py export ../dungeon_cfts/dvd/cft spawn_coordinates.json
+    python spawn_map.py blender river_0.cft river_0_labels.py     # or a cft dir + prefix
+        -> run the .py in Blender (Scripting tab) to drop a text label on every
+           monster and chest, grouped in one collection per area file.
+           Add `--axes x,-z,y` (the default) with other signs/orders if the
+           labels come out mirrored against your map mesh.
 """
 import glob
 import json
@@ -227,8 +241,9 @@ def monster_name(monster_id):
 
 
 def _records(path, ordinal):
-    """Return [(abs_addr, [field, ...]), ...] for every call to `ordinal`
-    inside this file's SPAWN_MONSTER dispatcher block, in placement order."""
+    """Return [(abs_addr, [field, ...], [signed field, ...]), ...] for every
+    call to `ordinal` inside this file's SPAWN_MONSTER dispatcher block, in
+    placement order. The second list applies float negates (opcode 0x2B)."""
     root, _ = cft.parse(path)
     func = next((s for s in root.subtags if s.type == b"FUNC"), None)
     if func is None:
@@ -242,20 +257,23 @@ def _records(path, ordinal):
     target = names.index(ordinal)
     reclen = RECORD_LEN[ordinal]
 
-    pushes, recs = [], []
+    pushes, signed, recs = [], [], []
     for off, op, arg in cft.disasm(code):
         if op in (3, 5):
-            pushes.append((off, arg))
+            pushes.append((off, arg)); signed.append(arg)
         elif op == 4:
-            pushes.append((off, round(struct.unpack(">f", struct.pack(">i", arg))[0], 3)))
+            v = round(struct.unpack(">f", struct.pack(">i", arg))[0], 3)
+            pushes.append((off, v)); signed.append(v)
+        elif op == 0x2B and signed and isinstance(signed[-1], float):
+            signed[-1] = -signed[-1]
         elif op in (0, 1, 2):
-            pushes.append((off, "?"))
+            pushes.append((off, "?")); signed.append("?")
         elif op == 0x0a:
             if (arg & 0xFFFF) == target and len(pushes) >= reclen:
                 rec = pushes[-reclen:]
                 addr = abs0 + rec[0][0]
-                recs.append((addr, [v for _, v in rec]))
-            pushes = []
+                recs.append((addr, [v for _, v in rec], signed[-reclen:]))
+            pushes, signed = [], []
     return recs
 
 
@@ -264,8 +282,9 @@ def monsters(path):
     E is the CONFIRMED get_treasure index for this monster's drop (swapping E
     between two records swaps their drops - user-verified in-game)."""
     out = []
-    for addr, r in _records(path, "SPAWN"):
+    for entry, (addr, r, w) in enumerate(_records(path, "SPAWN")):
         out.append({
+            "entry": entry,
             "addr": f"0x{addr:x}",
             "monster_id": r[0],
             "name": monster_name(r[0]),
@@ -273,6 +292,7 @@ def monsters(path):
             "C": r[2],
             "D": r[3],
             "x": r[4], "y": r[5], "z": r[6], "rotation": r[7],
+            "world": {"x": w[4], "y": w[5], "z": w[6]},
             "E": r[10],
         })
     return out
@@ -283,12 +303,14 @@ def chests(path):
     get_treasure index (user-verified: swapping A between two chests swaps
     their contents). B's meaning is still unresolved (see module docstring)."""
     out = []
-    for addr, r in _records(path, "SPAWN_TBOX"):
+    for entry, (addr, r, w) in enumerate(_records(path, "SPAWN_TBOX")):
         out.append({
+            "entry": entry,
             "addr": f"0x{addr:x}",
             "A": r[1],
             "B": r[3],
             "x": r[4], "y": r[5], "z": r[6], "rotation": r[7],
+            "world": {"x": w[4], "y": w[5], "z": w[6]},
         })
     return out
 
@@ -316,14 +338,93 @@ def _print_table(path):
     m = monsters(path)
     print(f"-- {len(m)} monster(s) --")
     for r in m:
-        print(f"  {r['addr']}  id=0x{r['monster_id']:02x} ({r['name']})  "
-              f"field1={r['field1']} C={r['C']} D={r['D']} E={r['E']}  "
-              f"pos=({r['x']}, {r['y']}, {r['z']}) rot={r['rotation']}")
+        w = r["world"]
+        print(f"  #{r['entry']:<3d} {r['addr']}  id=0x{r['monster_id']:02x} ({r['name']})  "
+              f"field1={r['field1']} C={r['C']} D={r['D']} E={_e_text(r['E'])}  "
+              f"world=({w['x']}, {w['y']}, {w['z']}) rot={r['rotation']}")
     c = chests(path)
     print(f"-- {len(c)} chest(s) --")
     for r in c:
-        print(f"  {r['addr']}  A={r['A']} B={r['B']}  "
-              f"pos=({r['x']}, {r['y']}, {r['z']}) rot={r['rotation']}")
+        w = r["world"]
+        print(f"  #{r['entry']:<3d} {r['addr']}  A={r['A']} B={r['B']}  "
+              f"world=({w['x']}, {w['y']}, {w['z']}) rot={r['rotation']}")
+
+
+def _e_text(e):
+    """Drop index E, with its high flag bits split off when present (e.g.
+    0x10000012 = drop table 18 + flag 0x1000; thought to mark a key drop)."""
+    if isinstance(e, int) and e >> 16:
+        return f"{e & 0xFFFF}+flag0x{e >> 16:x}"
+    return str(e)
+
+
+# Blender script template. Positions use the same convention as the team's
+# existing label script: Blender (X, Y, Z) = (world x, -world z, world y) / 10.
+_BLENDER_HEAD = """# Generated by spawn_map.py - run in Blender's Scripting tab.
+# One collection per area file; a text label per monster (orange) and chest
+# (cyan). Label: entry number, name/ID, drop (get_treasure) index, cycles.
+import bpy
+
+def _mat(name, rgba):
+    m = bpy.data.materials.get(name) or bpy.data.materials.new(name)
+    m.diffuse_color = rgba
+    return m
+
+MON = _mat("spawn_monster", (1.0, 0.35, 0.0, 1.0))
+BOX = _mat("spawn_chest", (0.0, 0.8, 1.0, 1.0))
+
+def label(coll, name, text, loc, mat):
+    cu = bpy.data.curves.new(type="FONT", name=name)
+    cu.body = text
+    cu.size = 0.6
+    ob = bpy.data.objects.new(name, cu)
+    ob.location = loc
+    ob.data.materials.append(mat)
+    coll.objects.link(ob)
+
+def area(name):
+    coll = bpy.data.collections.new(name)
+    bpy.context.scene.collection.children.link(coll)
+    return coll
+
+"""
+
+
+BLENDER_AXES = "x,-z,y"     # Blender X, Y, Z from world axes (default: team label script)
+
+
+def _bl_loc(w, axes=BLENDER_AXES):
+    """World position -> Blender location, per `axes` ("x,-z,y" = Blender X is
+    world x, Blender Y is -world z, Blender Z is world y), scaled by 1/10."""
+    out = []
+    for a in axes.split(","):
+        a = a.strip()
+        neg = a.startswith("-")
+        v = w[a.lstrip("-")]
+        out.append(round((-v if neg else v) / 10, 3))
+    return tuple(out)
+
+
+def blender_script(paths, axes=BLENDER_AXES):
+    """Text of a Blender script labelling every monster and chest in `paths`."""
+    out = [_BLENDER_HEAD]
+    for path in paths:
+        base = os.path.splitext(os.path.basename(path))[0]
+        m, c = monsters(path), chests(path)
+        if not (m or c):
+            continue
+        out.append(f"coll = area({base!r})")
+        for r in m:
+            text = (f"Entry {r['entry']}: {r['name']} (0x{r['monster_id']:02x})\n"
+                    f"drop {_e_text(r['E'])}  cycles 0x{r['C']:x}" if isinstance(r["C"], int)
+                    else f"Entry {r['entry']}: {r['name']}\ndrop {_e_text(r['E'])}")
+            out.append(f"label(coll, {base + '_mon' + str(r['entry'])!r}, {text!r}, "
+                       f"{_bl_loc(r['world'], axes)}, MON)")
+        for r in c:
+            text = f"Chest entry {r['entry']}\ndrop {r['A']}"
+            out.append(f"label(coll, {base + '_box' + str(r['entry'])!r}, {text!r}, "
+                       f"{_bl_loc(r['world'], axes)}, BOX)")
+    return "\n".join(out) + "\n"
 
 
 if __name__ == "__main__":
@@ -334,6 +435,23 @@ if __name__ == "__main__":
     cmd = args[0].lower()
     if cmd == "table" and len(args) >= 2:
         _print_table(args[1])
+    elif cmd == "blender" and len(args) >= 3:
+        # blender <file.cft> <out.py>   |   blender <cft_dir> <prefix> <out.py>
+        # optional trailing --axes x,-z,y  (to match a map mesh's orientation)
+        axes = BLENDER_AXES
+        if "--axes" in args:
+            i = args.index("--axes"); axes = args[i + 1]; args = args[:i] + args[i + 2:]
+        if os.path.isdir(args[1]):
+            if len(args) < 4:
+                sys.exit("usage: spawn_map.py blender <cft_dir> <dungeon prefix> <out.py>")
+            paths = sorted(glob.glob(os.path.join(args[1], f"{args[2]}_*.cft")))
+            outpath = args[3]
+        else:
+            paths, outpath = [args[1]], args[2]
+        with open(outpath, "w", encoding="utf-8") as f:
+            f.write(blender_script(paths, axes))
+        nm = sum(len(monsters(p)) for p in paths); nc = sum(len(chests(p)) for p in paths)
+        print(f"wrote {outpath}: {nm} monster and {nc} chest label(s) from {len(paths)} area file(s)")
     elif cmd == "export":
         cft_dir = args[1] if len(args) > 1 else DEFAULT_CFT_DIR
         outpath = args[2] if len(args) > 2 else "spawn_coordinates.json"

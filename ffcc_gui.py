@@ -192,6 +192,7 @@ class RandomizerTab(ttk.Frame):
         self.rand_prices = tk.BooleanVar(value=False)
         self.rand_bonus = tk.BooleanVar(value=False)
         self.mog_never_tired = tk.BooleanVar(value=False)
+        self.trap_visuals = tk.BooleanVar(value=True)
         self.start_loc = tk.StringVar(value="Tipa")
         self.skip_mio = tk.BooleanVar(value=False)
         self.skip_intro = tk.BooleanVar(value=False)
@@ -199,6 +200,10 @@ class RandomizerTab(ttk.Frame):
         self.randomize_miasma_elements = tk.BooleanVar(value=False)
         self.stage_key_locks = tk.BooleanVar(value=False)
         self.randomize_bosses = tk.BooleanVar(value=False)
+        self.randomize_world_zones = tk.BooleanVar(value=False)
+        self.world_zone_icons = tk.BooleanVar(value=True)
+        self.progression_logic = tk.BooleanVar(value=True)
+        self.protect_stones = tk.BooleanVar(value=True)
         self.debug_menu = tk.BooleanVar(value=False)
 
         # Source ISO (read-only) -> Output ISO (created/written). Choosing a
@@ -256,6 +261,10 @@ class RandomizerTab(ttk.Frame):
         r6 = ttk.Frame(opt); r6.pack(fill="x", pady=2)
         ttk.Checkbutton(r6, text="Randomize enemy drops too (uncheck = chests only)",
                         variable=self.include_drops).pack(side="left")
+        r7 = ttk.Frame(opt); r7.pack(fill="x", pady=2)
+        ttk.Checkbutton(r7, text="Keep required magicite obtainable (Holy for Lich / Zombie "
+                        "Dragon, Fire for Tida's webs)",
+                        variable=self.protect_stones).pack(side="left")
 
         # --- shops (independent of chest randomization) ---
         sh = ttk.LabelFrame(self, text="Shops", padding=8); sh.pack(fill="x", pady=4)
@@ -285,6 +294,8 @@ class RandomizerTab(ttk.Frame):
         ttk.Checkbutton(gt, text="Mog never gets tired (removes the stamina penalty for "
                         "running while carrying the chalice)",
                         variable=self.mog_never_tired).pack(anchor="w")
+        ttk.Checkbutton(gt, text="Show trap visuals (Archipelago status traps play the game's own freeze/burn/poison/paralysis/slow effects)",
+                        variable=self.trap_visuals).pack(anchor="w")
         sl = ttk.Frame(gt); sl.pack(fill="x", anchor="w", pady=(6, 0))
         ttk.Label(sl, text="Starting location:").pack(side="left")
         self.start_loc_box = ttk.Combobox(sl, state="readonly", width=16,
@@ -323,6 +334,34 @@ class RandomizerTab(ttk.Frame):
                   "gated dungeons now check for their key on entry, but this hasn't yet "
                   "been confirmed by a full in-game playthrough of every dungeon.",
                   foreground="#a33", wraplength=520, justify="left").pack(anchor="w")
+        ttk.Checkbutton(gt, text="Randomize world-map loading zones (which dungeon each map spot leads to)",
+                        variable=self.randomize_world_zones).pack(anchor="w", pady=(6, 0))
+        ttk.Label(gt, text="EXPERIMENTAL: shuffles 12 dungeons between their world-map spots "
+                  "(Mount Kilanda and Mount Vellenge stay put). Each spot keeps its own "
+                  "Miasma Stream gating and Myrrh-drop elements, so progression works like "
+                  "vanilla; only the dungeon you enter changes, and its exits return you to "
+                  "the spot you came from. Stage-key locks follow the dungeons. Not for "
+                  "Archipelago seeds (the apworld assumes vanilla locations). To choose "
+                  "dungeons per spot, use Export JSON / Patch from JSON and edit "
+                  "\"_world_zones\".",
+                  foreground="#a33", wraplength=520, justify="left").pack(anchor="w")
+        self.world_zone_icons_box = ttk.Checkbutton(
+            gt, text="Also show each spot's new dungeon building on the world map",
+            variable=self.world_zone_icons)
+        self.world_zone_icons_box.pack(anchor="w", padx=(20, 0))
+        def _sync_zone_icons(*_):
+            self.world_zone_icons_box.state(["!disabled"] if self.randomize_world_zones.get()
+                                            else ["disabled"])
+        self.randomize_world_zones.trace_add("write", _sync_zone_icons)
+        _sync_zone_icons()
+        ttk.Checkbutton(gt, text="Use progression logic for loading zones and stage keys (recommended)",
+                        variable=self.progression_logic).pack(anchor="w", pady=(6, 0))
+        ttk.Label(gt, text="Picks the zone layout and the stage-key order so every year has "
+                  "enough reachable dungeons, following each region's Miasma Stream "
+                  "element, the Jegon River crossing and the boats. Imported JSON files "
+                  "are never changed by this (set \"_progression_logic\": true in the "
+                  "JSON to opt in).",
+                  wraplength=520, justify="left").pack(anchor="w")
         ttk.Checkbutton(gt, text="Randomize bosses (shuffle dungeon bosses between arenas)",
                         variable=self.randomize_bosses).pack(anchor="w", pady=(6, 0))
         ttk.Label(gt, text="EXPERIMENTAL: each dungeon's boss room gets another dungeon's "
@@ -445,6 +484,7 @@ class RandomizerTab(ttk.Frame):
         ns.rand_prices = self.rand_prices.get()
         ns.rand_bonus = self.rand_bonus.get()
         ns.mog_never_tired = self.mog_never_tired.get()
+        ns.trap_visuals = self.trap_visuals.get()
         ns.start_loc = self.start_loc.get()
         ns.skip_mio = self.skip_mio.get()
         ns.skip_intro = self.skip_intro.get()
@@ -452,6 +492,10 @@ class RandomizerTab(ttk.Frame):
         ns.randomize_miasma_elements = self.randomize_miasma_elements.get()
         ns.stage_key_locks = self.stage_key_locks.get()
         ns.randomize_bosses = self.randomize_bosses.get()
+        ns.randomize_world_zones = self.randomize_world_zones.get()
+        ns.world_zone_icons = self.world_zone_icons.get()
+        ns.progression_logic = self.progression_logic.get()
+        ns.protect_stones = self.protect_stones.get()
         ns.debug_menu = self.debug_menu.get()
         return ns
 
@@ -505,6 +549,7 @@ class RandomizerTab(ttk.Frame):
         extra = ((1 if ns.rand_shops else 0) + (1 if ns.rand_prices else 0)
                  + (1 if ns.rand_bonus else 0)
                  + (1 if ns.mog_never_tired else 0)
+                 + (1 if getattr(ns, "trap_visuals", False) else 0)
                  + (1 if getattr(ns, "start_loc", "Tipa") != "Tipa" else 0)
                  + (1 if getattr(ns, "skip_mio", False) else 0)
                  + (1 if getattr(ns, "skip_intro", False) else 0)
@@ -512,6 +557,7 @@ class RandomizerTab(ttk.Frame):
                  + (1 if getattr(ns, "randomize_miasma_elements", False) else 0)
                  + (1 if getattr(ns, "stage_key_locks", False) else 0)
                  + (1 if getattr(ns, "randomize_bosses", False) else 0)
+                 + (1 if getattr(ns, "randomize_world_zones", False) else 0)
                  + (1 if getattr(ns, "debug_menu", False) else 0))
         self.progress.config(maximum=len(found) + 1 + extra, value=0)
         self.log.write(f"Randomizing {os.path.basename(out)}  "
@@ -533,7 +579,11 @@ class RandomizerTab(ttk.Frame):
         if getattr(ns, "randomize_bosses", False):
             import bossshuffle
             boss_plan = bossshuffle.random_plan(random.Random(f"{ns.seed}-bosses"))
-        holy = rnd.holy_dungeons_for(boss_plan)
+        zone_plan = None
+        if getattr(ns, "randomize_world_zones", False):
+            import worldzones
+            zone_plan = worldzones.random_plan(random.Random(f"{ns.seed}-zones"))
+        holy = rnd.stone_dungeons_for(boss_plan) if getattr(ns, "protect_stones", True) else {}
         try:
             for i, (script, friendly, discs) in enumerate(found, 1):
                 self._q.put(("label", f"Randomizing: {friendly}"))
@@ -601,6 +651,15 @@ class RandomizerTab(ttk.Frame):
                     self._q.put(("log", f"  [error] Mog never tired: {e}"))
                 step += 1
                 self._q.put(("value", step))
+            if getattr(ns, "trap_visuals", False):
+                self._q.put(("label", "Patching Start.dol (trap visuals)"))
+                try:
+                    rnd.patch_trap_visuals(out, apply=True)
+                    self._q.put(("log", "  Trap visuals: patched"))
+                except Exception as e:
+                    self._q.put(("log", f"  [error] Trap visuals: {e}"))
+                step += 1
+                self._q.put(("value", step))
             start_loc = getattr(ns, "start_loc", "Tipa")
             if start_loc and start_loc != "Tipa":
                 self._q.put(("label", f"Patching starting location ({start_loc})"))
@@ -655,13 +714,50 @@ class RandomizerTab(ttk.Frame):
                         self._q.put(("log", f"  [error] Miasma Stream elements: {e}"))
                 step += 1
                 self._q.put(("value", step))
+            # progression logic: after the Miasma Stream step, so the gate
+            # elements it plans around are the final ones
+            logic_chain = None
+            if getattr(ns, "progression_logic", False) and (
+                    getattr(ns, "randomize_world_zones", False) or getattr(ns, "stage_key_locks", False)):
+                try:
+                    plan, logic_chain, report = rnd.logic_plan(
+                        out, random.Random(f"{ns.seed}-progression"),
+                        getattr(ns, "randomize_world_zones", False),
+                        getattr(ns, "stage_key_locks", False),
+                        getattr(ns, "goblin_wall_always_visible", False))
+                    if zone_plan is not None:
+                        zone_plan = plan
+                    self._q.put(("log", "  progression logic: " + "; ".join(report)))
+                except Exception as e:
+                    logic_chain = None
+                    self._q.put(("log", f"  [warning] progression logic: {e} - using plain random"))
+            if zone_plan is not None:
+                # before stage keys: the locks follow each dungeon to its new node
+                self._q.put(("label", "Shuffling world-map loading zones"))
+                import worldzones
+                try:
+                    zlog = worldzones.apply_plan(out, zone_plan)
+                    moved = sum(1 for n, d in zone_plan.items() if n != d)
+                    self._q.put(("log", f"  world-map zones: {moved} node(s) lead to a different "
+                                        "dungeon (EXPERIMENTAL - layout is in the spoiler)"))
+                    if getattr(ns, "world_zone_icons", False):
+                        try:
+                            worldzones.apply_icons(out, zone_plan, zlog)
+                            self._q.put(("log", "  world-map zones: " + zlog[-1]))
+                        except Exception as e:
+                            self._q.put(("log", f"  [error] world-map icons: {e}"))
+                except Exception as e:
+                    self._q.put(("log", f"  [error] world-map zones: {e}"))
+                    zone_plan = None
+                step += 1
+                self._q.put(("value", step))
             if getattr(ns, "stage_key_locks", False):
                 self._q.put(("label", "Patching stage-key locks"))
                 try:
                     rnd.create_stage_key_items(out)
-                    chain = rnd.randomize_stage_key_chain(random.Random())
+                    chain = logic_chain or rnd.randomize_stage_key_chain(random.Random())
                     rnd.place_stage_keys(out, chain, random.Random(), holy_dungeons=holy)
-                    rnd.patch_stage_key_locks(out, apply=True)
+                    rnd.patch_stage_key_locks(out, apply=True, sites=rnd.stage_lock_sites_for(zone_plan))
                     self._q.put(("log", f"  stage-key artifacts: created 14, placed via chain {chain} "
                                         "- all 13 gated dungeons now check for their key on entry"))
                 except Exception as e:
@@ -681,6 +777,8 @@ class RandomizerTab(ttk.Frame):
                 self._q.put(("value", step))
             spoiler = os.path.splitext(out)[0] + " - spoiler.txt"
             run_capture(rnd.cmd_spoiler, out, spoiler, ns.ref, rnd._options_header(ns))
+            if zone_plan is not None:
+                rnd.append_zone_spoiler(spoiler, zone_plan)
             if boss_plan is not None:
                 # last: this rebuilds the ISO (arena files change size), after
                 # every in-place patch above
@@ -698,7 +796,7 @@ class RandomizerTab(ttk.Frame):
                     self._q.put(("log", f"  [error] boss shuffle: {e}"))
                 step += 1
                 self._q.put(("value", step))
-            for problem in rnd.check_holy_access(out, holy):
+            for problem in rnd.check_stone_access(out, holy):
                 self._q.put(("log", f"  [warning] {problem}"))
             self._q.put(("value", step + 1))
             self._q.put(("log", f"Done - {total} chest slots randomized into {os.path.basename(out)}."))
@@ -905,6 +1003,15 @@ RANDOMIZER
                pool. Checked (default) randomizes both; uncheck to randomize
                only the Game8-identified chests and leave enemy drops alone
                (dungeons without Game8 data are skipped in that mode).
+       Keep required magicite obtainable - on by default. Leaves the magicite
+               vanilla in the dungeons that need their own stones: Holy for
+               Lich and Zombie Dragon (element stone THEN Life), Fire for
+               Tida's spider webs. Untick for fully random magicite (those
+               fights/paths may then be impossible). JSON: "_protect_required_
+               stones"; a JSON's own chest data is never changed by it.
+       Shops - each vanilla item in a shop is swapped for the same random item
+               in every stock tier, so stock seen in an early year stays on
+               sale as the shop's selection grows.
        Shops - tick "Randomize shop inventories" to also shuffle what the towns
                sell (Tipa, Alfitaria, Fields of Fum, Selkie Peddler, Shella,
                Leuda, Smith). Choose all shops or just specific ones. Stock is
@@ -959,6 +1066,24 @@ GAMEPLAY TWEAKS (Randomizer tab)
        Cave/Veo Lu Sluice/Lynari Desert/Conall Curach/Rebena Te Ra/Mount
        Vellenge respectively - see the README for the full name/
        description table.
+    Randomize world-map loading zones  - EXPERIMENTAL, shuffles which dungeon
+       each world-map spot leads to (12 dungeons; Mount Kilanda and Mount
+       Vellenge stay). A spot keeps its Miasma Stream gating and Myrrh-drop
+       elements; the dungeon's exits return the caravan to that spot. Stage-key
+       locks follow the dungeons. Not for Archipelago seeds.
+       JSON: "_randomize_world_zones": true shuffles on patch; "_world_zones"
+       maps each spot (named by its vanilla dungeon) to a dungeon from
+       "_world_zone_choices"; an entry naming the spot's own dungeon means
+       "no preference". Needs a source ISO whose zones are still vanilla.
+       Also show each spot's new dungeon building (on by default): the
+       world-map building at each spot changes to the dungeon it now leads
+       to. JSON: "_world_zone_icons": true/false.
+    Use progression logic (on by default)  - the zone layout and the stage-key
+       order are picked so every year has enough reachable dungeons (Miasma
+       Stream elements per year, the Jegon River crossing, the boats; the
+       chalice keeps its element across the year change). Imported JSON files
+       are applied as written unless they set "_progression_logic": true, and
+       even then only their random parts follow the logic.
     Randomize bosses  - EXPERIMENTAL, shuffles the 13 dungeon bosses between
        boss arenas, each with its helpers and summons. Goblin King and Lich
        stay home in a random shuffle; Mount Vellenge's final boss never moves.
@@ -1194,6 +1319,7 @@ class APPatchTab(ttk.Frame):
         self.src  = tk.StringVar()   # vanilla ISO — read only, never modified
         self.out  = tk.StringVar()   # AP-patched copy — what gets written
         self.ffcc = tk.StringVar()   # optional .ffcc placement file (hybrid mode)
+        self._out_chosen = False     # True once a custom output file name was picked
 
         ttk.Label(self, text=(
             "Creates an Archipelago-ready ISO.\n\n"
@@ -1249,14 +1375,43 @@ class APPatchTab(ttk.Frame):
         browse_iso(self.src)
 
     def _browse_out(self):
-        s = self.src.get().strip()
-        init = os.path.basename(os.path.splitext(s)[0] + " - AP.iso") if s else "AP.iso"
+        init = self._suggested_name()
         p = filedialog.asksaveasfilename(
             title="Save AP-patched ISO as", defaultextension=".iso",
             initialfile=init,
             filetypes=[("Disc image", "*.iso *.gcm"), ("All", "*.*")])
         if p:
             self.out.set(p)
+            # keeping the suggested name only picks the folder; the seed name
+            # still follows when a .ffcc file is chosen later
+            self._out_chosen = os.path.basename(p) != init
+
+    def _seed_of(self, ffcc_path):
+        """The seed name stored in a .ffcc file (or its .zip container), or None."""
+        try:
+            try:
+                with _zipfile.ZipFile(ffcc_path) as zf:
+                    for name in zf.namelist():
+                        if name.endswith(".ffcc"):
+                            return json.loads(zf.read(name)).get("seed")
+            except _zipfile.BadZipFile:
+                with open(ffcc_path, "r", encoding="utf-8") as fh:
+                    return json.load(fh).get("seed")
+        except Exception:
+            return None
+        return None
+
+    def _suggested_name(self):
+        """Default output file name: '<source> - AP_<seed>_<time>.iso' when a .ffcc
+        file is selected, otherwise '<source> - AP.iso'."""
+        s = self.src.get().strip()
+        base = os.path.splitext(os.path.basename(s))[0] if s else "FFCC"
+        f = self.ffcc.get().strip()
+        if f and os.path.isfile(f):
+            seed = self._seed_of(f)
+            ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            return f"{base} - AP_{seed}_{ts}.iso" if seed else f"{base} - AP_{ts}.iso"
+        return f"{base} - AP.iso"
 
     def _browse_ffcc(self):
         p = filedialog.askopenfilename(
@@ -1267,29 +1422,15 @@ class APPatchTab(ttk.Frame):
             self._suggest_out_from_ffcc(p)
 
     def _suggest_out_from_ffcc(self, ffcc_path):
-        """Update the output ISO path to include seed + timestamp from the .ffcc file."""
+        """Name the output ISO after the seed + timestamp from the .ffcc file, in
+        the folder already chosen for the output (or the source's folder if
+        none). A custom file name picked with "Save as..." is left as it is."""
         s = self.src.get().strip()
-        if not s:
+        if not s or self._out_chosen:
             return
-        seed = None
-        try:
-            try:
-                with _zipfile.ZipFile(ffcc_path) as zf:
-                    for name in zf.namelist():
-                        if name.endswith(".ffcc"):
-                            seed = json.loads(zf.read(name)).get("seed")
-                            break
-            except _zipfile.BadZipFile:
-                with open(ffcc_path, "r", encoding="utf-8") as fh:
-                    seed = json.load(fh).get("seed")
-        except Exception:
-            pass
-        stem = os.path.splitext(s)[0]
-        ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        if seed:
-            self.out.set(f"{stem} - AP_{seed}_{ts}.iso")
-        else:
-            self.out.set(f"{stem} - AP_{ts}.iso")
+        cur = self.out.get().strip()
+        folder = os.path.dirname(cur) if cur else os.path.dirname(s)
+        self.out.set(os.path.join(folder, self._suggested_name()))
 
     def _suggest_out(self, *_):
         s = self.src.get().strip()
