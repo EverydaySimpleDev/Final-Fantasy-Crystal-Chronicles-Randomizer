@@ -221,9 +221,12 @@ the disc):
 - River Belle Path's exits `02` → `34`: river_0 `0x2C57F`, `0x344D6`;
   river_1 `0x262C1`, `0x33600`, `0x54A9F`.
 
-## Corrections to earlier notes
+## Easy-to-get-wrong values
 
-- **Completion flags:** Veo Lu Sluice is **D1** and Mount Kilanda **CE**. Earlier notes had them swapped. The worked example's ATTRIB edit is **C8 → D3**, not "20 → 2B".
+These values have circulated incorrectly in community notes; the tables
+above are the verified ones.
+
+- **Completion flags:** Veo Lu Sluice is **D1** and Mount Kilanda **CE** (not the other way round). The worked example's ATTRIB edit is **C8 → D3**, not "20 → 2B".
 - **Menu names:** Conall Curach is **2B** and Rebena Te Ra **2C**. Value `28` is Selepation Cave, not the Mine.
 - **Display offsets:**
   - Selepation Cave is `0x4BF2B` (not `0x4BF1B`).
@@ -233,21 +236,20 @@ the disc):
 - **Post-boss exit pattern:** it has a `0D` store before the `0C`.
 - **Boss-room stage exits:** boss rooms also contain ordinary stage exits, which need patching too.
 
-## Stage keys and Mount Kilanda (fixed)
+## Stage keys and Mount Kilanda
 
-Earlier versions of the stage-key feature listed Mount Kilanda's lock site
-as `0x4E33A` (stage id 172). That call is actually a **Leuda** stop
-(`thief_0`), so Leuda asked for the Kilanda Key and Mount Kilanda wasn't
-locked.
+The `mainBasha` call at `0x4E33A` (stage id 172) is a **Leuda** stop
+(`thief_0`), not Mount Kilanda; gating it locks Leuda behind the Kilanda Key
+and leaves Mount Kilanda open.
 
 Mount Kilanda is entered through four 4-argument `MJ_SWING` calls (STR 174,
 181, 184, 187 at `0x4E931`, `0x4F1E7`, `0x4F675`, `0x4FA83`), which the main
-8-argument dispatcher (`encountKaido`) can't take. They now have their own
+8-argument dispatcher (`encountKaido`) can't take. They have their own
 dispatcher: `world.cft`'s copy of the library function `dropItem_fromNpc`
 (function 426), which the world map never calls, is rewritten to take 4
 arguments, check the Kilanda Key (`0xEE`), and forward them to `MJ_SWING`
-(592). All four entrances call it instead. The Leuda stop is left vanilla,
-and an ISO made with the old version gets it put back. See
+(592). All four entrances call it instead. The Leuda stop is left vanilla
+(and is restored to vanilla if an ISO still has it redirected). See
 `_patch_kilanda_and_leuda()` in `randomizer.py`.
 
 ## World-map buildings (icons)
@@ -280,4 +282,4 @@ difference (`u += dcol*256`, `v += drow*256`) and, if the cell is on the
 other plate, set the display list's material (first 2 bytes of its `DLST`)
 to 4 or 5. The file size doesn't change. `worldzones.apply_icons()` does this
 for a zone plan, and `icon_status()` reads back which building each stop shows.
-Confirmed in game (Tipa's stop showing River Belle Path's building).
+Tested in-game (Tipa's stop showing River Belle Path's building).

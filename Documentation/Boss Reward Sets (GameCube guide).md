@@ -6,8 +6,12 @@ sets**; which set you get is gated by **cycle** + your **bonus points**, with
 thresholds that scale by **player count (1P–4P)**.
 
 This is the **end-of-dungeon reward** subsystem — **separate from chest /
-enemy-drop loot** (`get_treasure`) and **NOT touched by the randomizer**.
-Reference documentation only.
+enemy-drop loot** (`get_treasure`), and chest randomization never changes it.
+The sets themselves live in `dvd/cft/newbattle.cfd` (one `CBossArtifactStage`
+block per dungeon, 8 entries × 4 item ids); `randomizer.py` can optionally
+randomize them (`_randomize_bonus_pools`) or force specific items
+(`_bonus_pools`) — see `NEWBATTLE_BLOCKS` in `randomizer.py`. The tables
+below are the vanilla contents.
 
 ## Fixed structure (same for every dungeon)
 
@@ -26,8 +30,8 @@ cycle/tier mapping is constant:
 | 7 | — | — | tier B |
 | 8 | — | — | tier C |
 
-So per dungeon I only record the **artifacts** in each set plus its **A/B/C
-tier numbers**.
+So each dungeon below lists only the **artifacts** in each set plus its
+**A/B/C tier numbers**.
 
 > Point thresholds transcribed from 300-DPI scans by eye (small numbers may
 > carry OCR errors). **Artifact lists cross-checked and corrected against a
@@ -276,8 +280,8 @@ Daemon's Court, Selepation Cave, Mount Kilanda, Conall Curach, Rebena Te Ra,
 Lynari Desert — plus **Mount Vellenge** (final dungeon, no cycles).
 
 Areas with **no boss reward table**: Mag Mell (peaceful town), Jegon River and
-Cave of the Lethargon (connecting passages) — confirmed they have no 8-set table.
+Cave of the Lethargon (connecting passages) have no 8-set table.
 
-Note: artifact lists are read confidently; the small per-player **point
+Note: the artifact lists are reliable; the small per-player **point
 thresholds** are the OCR-risky part (entries marked *OCR-approx* especially —
 re-check against the guide pages if you need exact qualifying scores).

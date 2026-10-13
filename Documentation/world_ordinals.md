@@ -2,14 +2,13 @@
 
 Extracted **630 ordinals** from `world.cft`.
 
-Verified byte-for-byte against the actual extracted `world.cft` (2026-09-13,
-via `cft.py`'s FUNC-table parser) - all 630 entries present, spot-checked 17
-across the whole range (`director`, `onWorldParam`, `loadCFlat`, the full
+Verified against the extracted `world.cft` with `cft.py`'s FUNC-table
+parser: all 630 entries present, with 17 spot-checked across the whole range (`director`, `onWorldParam`, `loadCFlat`, the full
 `SPAWN`/`SPAWN_POT`/`SPAWN_HOT_SPOT`/`SPAWN_LAVA_HOLE`/`SPAWN_TBOX`/
 `SPAWN_SWITCH_SPHERE` family, `get_treasure`, `changeYear`, `SPAWN_PLAYER`,
 `encountKaido`, `WM_MoveEnd`, `beginBasha`/`initBasha`/`mainBasha`,
-`mainEventDirector`) - every one matched exactly. Treat this as an
-authoritative name table for `world.cft`'s own FUNC index (ordinal position
+`mainEventDirector`), every one matching exactly. Treat this as the
+name table for `world.cft`'s own FUNC index (ordinal position
 in `world.cft`'s FUNC table - other `.cft` files compile their own FUNC
 table independently and may assign the same name to a different ordinal
 number, or vice versa, so don't assume a number carries across files

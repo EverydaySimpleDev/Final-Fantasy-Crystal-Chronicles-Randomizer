@@ -7,10 +7,9 @@ Every item's `model` field (`param.cfd` record offset 2) is a packed value:
 preview" mesh namespace (see `Adding Custom Items and Artifacts.md` for how
 `model` is consumed differently by weapon/shield/character code).
 
-Built directly from a real ISO (`Updated_start_alfitaria_v2.iso`, verified
-2026-09-14): scanned the entire 1205-row `param.cfd` table for every item's
-masked mesh id, and cross-referenced against which `f0NN_root.tex` files
-actually exist in the disc.
+Built directly from an NTSC-US ISO: every item's masked mesh id was read
+from the full 1205-row `param.cfd` table and cross-referenced against which
+`f0NN_root.tex` files actually exist on the disc.
 
 - **Status `used`**: at least one item (named or not) points at this mesh.
 - **Status `UNUSED`**: the mesh file exists on the disc but NO item
@@ -183,8 +182,8 @@ actually exist in the disc.
 - **Model 0** (not in this table - no `f000` mesh exists) is the sentinel
   most armor/tribal/accessory equipment uses: these categories are never
   seen as world pickups with a unique shape, consistent with
-  the finding (see Adding Custom Items and Artifacts.md) that only weapons ever get a
-  distinct rendered mesh.
+  only weapons and shields ever getting a distinct rendered mesh on the
+  character (see `Adding Custom Items and Artifacts.md`).
 - Plain-text mesh ids with **no gaps in the 1-138 range being "reserved"**
   in any obvious pattern (unused ids are scattered individually, not in one
   contiguous cut block) - these read like leftover assets from a larger

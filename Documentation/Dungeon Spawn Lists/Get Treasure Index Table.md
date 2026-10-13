@@ -1,6 +1,6 @@
 # get_treasure Index Table (per dungeon)
 
-`A` (`SPAWN_TBOX` chests) and `E` (`SPAWN` monsters) are both **confirmed**
+`A` (`SPAWN_TBOX` chests) and `E` (`SPAWN` monsters) are both
 `get_treasure` indices — swapping either between two records swaps what they
 drop (verified in-game; each index has 4 item slots, matching
 `PutDropItem`'s `m_dropItemCodes[4]`).
@@ -42,14 +42,13 @@ plain-index columns, since what the tag actually means is not yet decoded.
 
 - Values are the union across every area file belonging to that dungeon
   (e.g. River Belle Path's list merges `river_0` and `river_1`).
-- Duplicate index values ARE expected — several different physical
+- Duplicate index values are expected — several different physical
   chests/monsters legitimately share the same `get_treasure` index (they
   draw from the same 4-item pool), so a value repeating within a dungeon
   is normal, not a data error.
-- Veo Lu Sluice and Daemon's Court are the only two dungeons whose CHESTS
-  exclusively use "tagged" values (no plain low-index chests at all) - worth
-  investigating first if the tag scheme gets decoded, since they're the
-  cleanest isolated cases.
+- Veo Lu Sluice's chests use only "tagged" values (no plain low-index
+  chests at all), and Daemon's Court's chests are mostly tagged. They are the
+  cleanest cases to start from when decoding the tag scheme.
 - Per-record detail (coordinates, monster names, raw B/C/D fields) is in
   `spawn_coordinates.json` in this same folder, via `spawn_map.py`.
 

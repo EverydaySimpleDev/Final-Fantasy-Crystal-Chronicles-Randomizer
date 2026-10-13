@@ -55,7 +55,7 @@ class Cha:
         return 0 # TO-DO
         
         
-# If called as script, write img file for each texture
+# If called as script, parse the CHA file and print its animation data
 if __name__ == "__main__":
     fh = open(sys.argv[1], "rb")
     #if (len(sys.argv[1]) > 4 and sys.argv[1][-3:] == "cha") and not os.path.exists(sys.argv[1][:-4]):

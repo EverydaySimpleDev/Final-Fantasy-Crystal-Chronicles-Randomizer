@@ -30,10 +30,10 @@ onSetSystemVal in zcanann/FFCC-Decomp's reference-decomp, src/cflat_runtime.cpp
 and src/cflat_r2system.cpp). The interpreter's own opcode-length rule
 (cflat_runtime.cpp:1145): every opcode < 0x0C is 5 bytes (1 opcode byte + a
 4-byte big-endian argument word); every opcode >= 0x0C is a bare 1 byte, no
-operand. Earlier hand-guessed decoding only special-cased 0x03/0x04 (push
-int32/float32) and 0x0a (call, wrongly assumed 3 bytes) as having operands,
-silently desyncing the byte stream the first time any other <0x0C opcode
-(0x00-0x02, 0x05-0x09, 0x0b) appeared - that's `disasm()` below, fixed.
+operand. A decoder must apply this to every opcode: treating only the push
+(0x03/0x04) and call (0x0a) opcodes as having operands silently desyncs the
+byte stream at the first other <0x0C opcode (0x00-0x02, 0x05-0x09, 0x0b).
+`disasm()` below implements the rule.
 
   0x00 GET   value-by-index (local/global/"this"/system-value per arg flags)
   0x01 GETA  address-of same (paired with 0x0d/0x0e/0x0f "store" for assignment)
@@ -61,8 +61,8 @@ For a negative system-value index in (-1000, -500], CFlatRuntime2's handler
 treats it as a bit in `CGameWork::m_eventFlags[256]` (game.h, offset 0x10CC):
     bitIndex = index + 0x9F3 ; byte = bitIndex // 8 ; bit = bitIndex % 8
 This is the same generic flag bank `m_chaliceElement` (index -0x66) lives
-next to - almost certainly the backing store for the AP client's per-dungeon
-chest-open flags. See `sysval_desc()` / `cmd_sysvals` below.
+next to. (Chest-opened flags are kept elsewhere - see chestflags.py.) See
+`sysval_desc()` / `cmd_sysvals` below.
 """
 
 import struct
@@ -227,8 +227,7 @@ def disasm(code):
     real CFlat VM's fixed-width encoding (see module docstring / cft.py's
     opcode table): opcode < 0x0C carries a 4-byte big-endian signed argument
     (5 bytes total); opcode >= 0x0C is a bare 1-byte opcode, arg=None.
-    This replaces the old ad-hoc 0x03/0x04/0x0a-only decoding, which
-    desynced on any other <0x0C opcode (0x00-0x02, 0x05-0x09, 0x0b)."""
+    Every <0x0C opcode must be read as 5 bytes, or the stream desyncs."""
     i, n = 0, len(code)
     while i < n:
         op = code[i]
@@ -259,8 +258,8 @@ def sysval_desc(index):
 
 
 def cmd_calls(path, funcname):
-    """Disassemble one function's calls using the corrected opcode widths
-    (see disasm()). Calls are resolved against the FUNC table by relative
+    """Disassemble one function's calls using the VM's opcode widths
+    (see disasm()). Calls are resolved against the FUNC table by absolute
     index; int/float pushed beforehand are shown as candidate operands."""
     root, _ = parse(path)
     func = next((s for s in root.subtags if s.type == b"FUNC"), None)
@@ -326,12 +325,11 @@ def cmd_sysvals(path, funcname):
                 dyn = "" if (mode & 1) else "  [+ runtime offset, not static]"
                 print(f"   @0x{off:04x}  {what} sysval index={index:<6d} {sysval_desc(index)}{dyn}")
         elif op == 0x02 and arg is not None:
-            # SELV packs `index<<13 | classId` per the module docstring - NOT
-            # arg>>8 (that was a leftover copy from the GET/GETA decode above).
-            # Confirmed against a live Dolphin memory-breakpoint trace
-            # (2026-09-17): the real interpreter (fn_800B218C in the NTSC-US
-            # build) computes this via `srawi r26, r4, 0xd` (arithmetic shift
-            # by 13), not 8 - verified by disassembling main.elf directly.
+            # SELV packs `index<<13 | classId` (see the module docstring), so
+            # the index is arg >> 13, not arg >> 8 as for GET/GETA above. The
+            # NTSC-US interpreter (fn_800B218C) decodes it with
+            # `srawi r26, r4, 0xd` (arithmetic shift by 13); verified with a
+            # Dolphin memory-breakpoint trace.
             index = arg >> 13
             setop = next((o for (_, o, _) in ops[i + 1:i + 6]
                           if o in (0x13, 0x14, 0x15, 0x16, 0x17, 0x18)), None)

@@ -1,24 +1,23 @@
 # Artifact-Gated Stage Entrances
 
-Proof-of-concept, live-confirmed in-game (2026-09-25): entering Goblin Wall
-from the world map now requires owning a specific artifact ("Gob Key", item
-`0xE9`). No key, no entry - the world map just doesn't let the transition
-happen. This document is the full recipe: every file touched, every byte
-changed, and why each step was necessary. It only covers **one** stage
-(Goblin Wall) as a working example - generalizing to all stages is future
-work (see "What's not done yet" at the end).
+Worked example, tested in-game: entering Goblin Wall from the world map
+requires owning a specific artifact ("Gob Key", item `0xE9`). No key, no
+entry - the world map just doesn't let the transition happen. This document
+is the full recipe: every file touched, every byte changed, and why each
+step was necessary. It covers **one** stage (Goblin Wall); the randomizer's
+`_stage_key_locks` option applies the same technique to the other dungeons
+(see "Generalizing to all stages" at the end).
 
 Five changes were needed: one new item, one chest edit, and three separate
 edits to the world map's own script file (`world.cft`) plus one single
 instruction changed in the game's own executable (`Start.dol`). All of it
-was done with this repo's existing tools (`cft.py`, `lootcft.py`,
-`customitem.py`, `gciso.py`) plus some hand-written script bytecode - no new
-tools were built.
+can be done with this repo's existing tools (`cft.py`, `lootcft.py`,
+`customitem.py`, `gciso.py`) plus some hand-written script bytecode.
 
 ## 1. Make the key artifact a real, valid item
 
 `customitem.py` can turn any of the game's ~20 unused artifact-ID slots
-(`0xE8`-`0xFE`) into a real item. We used `0xE9` and cloned it from an
+(`0xE8`-`0xFE`) into a real item. This example uses `0xE9`, cloned from an
 existing real artifact ("Earth Pendant") rather than leaving it as an empty
 placeholder:
 
@@ -29,10 +28,10 @@ py customitem.py add "game.iso" 0xE9 "Gob Key" --like "Earth Pendant"
 This edits two files inside the ISO: `param.cfd` (the item's stats/type
 record - cloning gives it a real `type`/`model`/`gil` instead of the
 all-zero placeholder every unused slot starts with) and `c_system.cfd` (the
-display name strings). **Cloning matters**: we first tried this with the
-slot left as an empty placeholder record, and chests silently refused to
-drop the item at all, in every dungeon - the game's reward logic appears to
-skip items whose record looks unpopulated. Real artifact data fixes this.
+display name strings). **Cloning matters**: if the slot is left as an
+empty placeholder record, chests silently refuse to drop the item at all,
+in every dungeon - the game's reward logic appears to skip items whose
+record looks unpopulated. Real artifact data fixes this.
 
 ## 2. Put it somewhere the player can actually find it
 
@@ -53,8 +52,8 @@ come from - not every chest in one dungeon like this test did.
 picked up instantly like a normal item. Finding one in a dungeon adds it to
 a temporary "Treasures" list; only when you clear the dungeon and beat its
 boss do you choose ONE candidate from that list to keep permanently. This
-is normal, vanilla behavior for all 73 real artifacts, and our new key
-behaves the same way - it just wasn't obvious until we saw it firsthand.
+is normal, vanilla behavior for all 73 real artifacts, and the new key
+behaves the same way.
 
 ## 3. Free up some dead code to build the gate check in
 
@@ -63,7 +62,7 @@ The world map's own script file, `world.cft`, has a function called
 map. Among other things, it used to call another function, `encountKaido`,
 to roll a random overworld monster encounter.
 
-We disabled that specific call - replacing the 5-byte `CALL` instruction
+Disable that specific call by replacing the 5-byte `CALL` instruction
 with a harmless "push zero" instruction (`WM_MoveEnd` immediately discards
 whatever `encountKaido` returns, so this is a safe, no-op-equivalent swap):
 
@@ -78,7 +77,7 @@ implementation detail.
 
 With that call gone, `encountKaido` itself is never invoked from its
 original spot - freeing its ~18,000 bytes of now-unused code to become our
-gate-check function instead.
+gate-check function.
 
 ## 4. Rewrite that dead code into the actual gate check
 
@@ -113,30 +112,29 @@ labeled) - this isn't cosmetic metadata.
 
 The world map's `mainBasha` function has one call, specific to Goblin Wall,
 that used to go straight to "confirm and travel there." That one call was
-redirected to our new gate-check function instead - a one-byte change
+redirected to the new gate-check function instead - a one-byte change
 (only the target function's index number changes; everything about how the
 call is made stays the same):
 
 - File offset `0x471D2` in `world.cft`
 - Before: `0A FF FF 02 52` (call function #594, `MJ_SWING_ATTRIB_2` directly)
-- After: `0A FF FF 02 56` (call function #598, our new `encountKaido`)
+- After: `0A FF FF 02 56` (call function #598, the new `encountKaido`)
 
 Every other stage's own "confirm and travel" call is completely untouched
 - only Goblin Wall's is rerouted.
 
 ## 6. The one change inside the game's executable itself
 
-This part wasn't a design choice - it was a blocker we hit and had to fix.
+This step is required, not optional.
 `checkCaravanItem` (the "does the player have item X" check from step 4)
 turned out to only search the first 64 of the player's inventory slots.
-Artifacts - including our new key - are stored further along in that same
+Artifacts - including the new key - are stored further along in that same
 list, past slot 64, so the check could never see them, no matter how
 correctly the key was granted. This is a real limitation of the compiled
 game code, not a bug in any of the script edits above.
 
 The fix is one instruction in the game's own executable (`Start.dol`),
-found by attaching a live debugger to a running copy of the game and
-tracing exactly which instruction performs this check:
+located by tracing the check with a live debugger:
 
 - `Start.dol` file offset `0x913fc`
 - Before: `38 00 00 08` (an internal loop-count value of 8, which covers 64
@@ -150,12 +148,28 @@ executable rather than in a data/script file. **It only needs to be applied
 once** - it fixes the underlying check itself, so every stage that's ever
 gated this way (not just Goblin Wall) benefits from the same single patch.
 
-## What's not done yet
+## Generalizing to all stages
 
-- Only Goblin Wall is gated. The other 25 stage-entry points in `mainBasha`
-  are untouched and would each need their own version of steps 4-5 (their
-  own dead-code function to repurpose, or a shared dispatcher function
-  handling all of them by stage index).
+The recipe above gates a single stage. Gating more stages means giving each
+stage-entry point in `mainBasha` its own version of steps 4-5. The
+randomizer's `_stage_key_locks` option (`patch_stage_key_locks()` in
+`randomizer.py`) gates 13 dungeons with one shared function instead of 13
+repurposed ones: every `mainBasha` entrance call already pushes a unique
+per-site stage id as its first argument, so `encountKaido`'s new body
+switches on that id, checks that dungeon's key, and forwards the 8 original
+arguments to that site's original `MJ_SWING` variant. Mount Kilanda is the
+exception - it is entered through four 4-argument `MJ_SWING` calls, so
+world.cft's unused copy of `dropItem_fromNpc` is rewritten into a separate
+4-argument dispatcher for it. River Belle Path is always left open. The
+`Start.dol` fix from step 6 is shared by all of them. See `STAGE_KEYS`,
+`_STAGE_LOCK_SITES` and `_KILANDA_SITES` in `randomizer.py` for the key IDs,
+call-site offsets and stage ids.
+
+Note: the `mainBasha` call at `0x4E33A` (stage id 172, `thief_0`) is a Leuda
+stop, not Mount Kilanda - don't gate it as Kilanda.
+
+Limitations:
+
 - Real artifacts can only be obtained through the vanilla "find several
   candidates in a dungeon, choose one when you beat the boss" flow. Any
   other intended way to hand out these keys (a specific fixed chest, an

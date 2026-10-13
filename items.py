@@ -2,9 +2,8 @@
 items.py - Read/edit FFCC's item-definition table (dvd/cft/param.cfd).
 
 Each item is a 72-byte (0x48) record; the table holds 1205 entries (IDs
-0x0000-0x04B4). Field layout is from FFCC Notes/Structures.txt. IDs are the
-ones in FFCC Notes/Inventory Code Lists.txt (e.g. 0x0001 Copper Sword,
-0x0125 Phoenix Down, 0x0100 Stone of Fire).
+0x0000-0x04B4). IDs are the game's item IDs, named in ffcc_items.py
+(e.g. 0x0001 Copper Sword, 0x0125 Phoenix Down, 0x0100 Stone of Fire).
 
 Workflow (param.cfd is fixed-size, so edits re-inject in place):
     python gciso.py extract "Hacked Rom.iso" dvd/cft/param.cfd param.cfd

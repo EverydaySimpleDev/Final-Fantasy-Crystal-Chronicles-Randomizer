@@ -133,8 +133,8 @@ py gciso.py inject "Your_test.iso" dvd/cft/river_0.cft river_0.cft
 ## Method 2 — replacing a monster
 
 **What the argument means:** `SPAWN` (the generic monster spawner) pushes a
-13-value record per monster; the first value is the **monster ID** (see
-`Monster Addresses.md` for the full ID table). The record layout:
+13-value record per monster; the first value is the **monster ID** (the
+full ID-to-name table is `MONSTER_NAMES` in `spawn_map.py`). The record layout:
 
 ```
 MonsterID, field2, cycles, field4, X, Y, Z, rotation, 0, 0x40000004, drop, 0, 0

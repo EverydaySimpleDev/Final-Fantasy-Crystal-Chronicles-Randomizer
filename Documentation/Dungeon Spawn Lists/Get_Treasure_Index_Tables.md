@@ -7,14 +7,14 @@ each stage's `get_treasure` bytecode.
 
 ## Methodology
 
-`get_treasure(index)` is a **two-level switch**, confirmed by direct
-bytecode tracing (not inferred from community guides):
+`get_treasure(index)` is a **two-level switch** (traced directly from the
+bytecode):
 
 - **Outer switch** on `index` (the `A`/`E` value). Each matching case falls
   straight through into...
 - **Inner switch on a second value, 0-7** (8 slots). This is the real
-  structure — **not** the 7-slot / "cycle 1/2/3" model external player
-  guides use (built without code access). The 8 slots most likely track
+  structure — **not** the 7-slot / "cycle 1/2/3" model used by player
+  guides. The 8 slots most likely track
   something finer-grained than the 3 broad cycles, plausibly a per-year
   or per-threshold counter — worth keeping in mind rather than assuming
   a clean 3-way split.
@@ -23,11 +23,9 @@ bytecode tracing (not inferred from community guides):
   same signature `lootcft.py`'s `find_item_slots()` already keys off.
   Entries marked **(!)** below did *not* match this signature; the item
   shown is a lower-confidence fallback guess (see Caveats). Entries marked
-  **(empty)** matched a distinct, confirmed "zero out locals" reset
-  pattern instead of an item push - these slots genuinely carry no
-  treasure, verified by direct bytecode inspection (not a heuristic
-  guess). The two are diagnostically different and were confirmed not to
-  overlap: `(!)` cases (e.g. `river_0` index 1/2) land on real unrelated
+  **(empty)** matched a distinct "zero out locals" reset pattern instead
+  of an item push - these slots genuinely carry no treasure (checked in the
+  bytecode, not a heuristic guess). The two never overlap: `(!)` cases (e.g. `river_0` index 1/2) land on real unrelated
   code elsewhere in the file; `(empty)` cases (first seen in Mount
   Vellenge) contain no item-granting code at all for that slot.
 
@@ -44,26 +42,22 @@ Extraction tool: `get_treasure_dispatch.py` (reusable per-stage; see
   like `Copper Sword, Iron Sword, Steel Blade...` (IDs 1-7 in file order)
   — as a signal the entry may not be real, not just a parsing failure.
   `river_0`'s `E = 1, 2, 26, 28, 52` all showed this pattern.
-- A handful of monster entries in the raw JSON have huge, clearly-bogus
-  `E` values (e.g. `268435474`). These are almost certainly an artifact of
-  whatever script built `spawn_coordinates.json` misaligning on those
-  specific records, not real indices — listed as garbage below rather than
-  silently dropped, so it's visible which spawns need re-checking at the
-  source.
+- A handful of monster entries have large `E` values (e.g. `268435474` =
+  `0x10000012`). These are tagged values, `tag << 28 | index`: a small drop
+  index with an extra tag in the high bits (see Get Treasure Index Table.md).
+  They're listed separately below with the tag and index split out.
 - Low-confidence `(!)` entries used a loose fallback (first in-range
   `push_i32` after the case body, no signature match) and should not be
   trusted for actual randomization edits without manual verification.
-- **Cross-stage pattern, `index = 1` — corrected:** in every stage checked
-  through Tida, index 1 showed an all-`(!)` broken run, which looked like a
-  reserved/empty sentinel. `gigas_1` disproves that: its `A=1` chest
-  resolves to a real, coherent, on-theme set (`Fashion Kit`/`Lady's
-  Accessories`, matching the reference doc's Moschet Manor chest almost
-  exactly) — so index 1 is not universally reserved, it's simply *unused*
-  in most of the stage files seen so far. Note also that even in this
-  genuinely real case, 2 of the 8 slots (0 and 4) still show `(!)` — so
-  `(!)` should be read per-slot, not as a verdict on the whole index.
-- **Cross-stage pattern, `index = 2`:** also reproduces in every stage
-  checked - but with a more specific signature: slots 0-6 fail `(!)`
+- **Cross-stage pattern, `index = 1`:** in most stages index 1 resolves
+  to an all-`(!)` broken run, but it is not a reserved sentinel: `gigas_1`'s
+  `A=1` chest resolves to a real, coherent set (`Fashion Kit`/`Lady's
+  Accessories`, matching the community chest list's Moschet Manor chest
+  almost exactly). Index 1 is simply *unused* in most stage files. Even in
+  that real case, 2 of the 8 slots (0 and 4) still show `(!)`, so read
+  `(!)` per slot, not as a verdict on the whole index.
+- **Cross-stage pattern, `index = 2`:** appears in every stage checked,
+  with a more specific signature: slots 0-6 fail `(!)`
   every time, while **slot 7 consistently succeeds** (REC_SIG match) and
   always resolves to a plain seed item (`Vegetable Seed`/`Fruit Seed`).
   This looks like index 2's inner switch genuinely only has a real case
@@ -112,9 +106,9 @@ Extraction tool: `get_treasure_dispatch.py` (reusable per-stage; see
 | 50 | Stone of Fire | Stone of Blizzard | Stone of Thunder | Stone of Cure | Stone of Fire | Stone of Blizzard | Stone of Thunder | Stone of Cure |
 | 51 | Stone of Life | Stone of Life | Stone of Life | Stone of Life | Stone of Life | Stone of Life | Stone of Life | Stone of Life |
 | 52 | Copper Sword (!) | Iron Sword (!) | Steel Blade (!) | Feather Saber (!) | Bastard Sword (!) | Defender (!) | Rune Blade (!) | Treasured Maul (!) |
-| 268435474 | *(garbage - JSON extraction artifact, not a real index)* | | | | | | | |
-| 536870931 | *(garbage - JSON extraction artifact, not a real index)* | | | | | | | |
-| 805306369 | *(garbage - JSON extraction artifact, not a real index)* | | | | | | | |
+| 268435474 | *(tagged: tag 1, index 18 - see Get Treasure Index Table.md)* | | | | | | | |
+| 536870931 | *(tagged: tag 2, index 19 - see Get Treasure Index Table.md)* | | | | | | | |
+| 805306369 | *(tagged: tag 3, index 1 - see Get Treasure Index Table.md)* | | | | | | | |
 
 ## The Mushroom Forest (`kinoko_0`)
 
@@ -162,8 +156,8 @@ Extraction tool: `get_treasure_dispatch.py` (reusable per-stage; see
 | 35 | Copper Sword (!) | Iron Sword (!) | Steel Blade (!) | Tome of Speed | Tome of Speed | Ruby | Jade | Fiend Kit |
 | 36 | Copper Sword (!) | Iron Sword (!) | Steel Blade (!) | Alloy | Alloy | Ruby | Jade | Diamond Ore |
 
-> **Note:** `gob_2.cft` not yet provided — `spawn_coordinates.json` shows
-> 11 monsters (0 chests) in `gob_2` that aren't traced below.
+> **Note:** `gob_2.cft` (the boss room) isn't traced here —
+> `spawn_coordinates.json` shows 11 monsters (0 chests) in `gob_2`.
 
 ## Goblin Wall - Area 1 (`gob_0`)
 
@@ -231,10 +225,10 @@ Extraction tool: `get_treasure_dispatch.py` (reusable per-stage; see
 | 28 | Shiny Shard | Shiny Shard | Crystal Ball | Thunderball | Ruby | Jade | Thunderball | Thunderball |
 | 29 | Copper Sword (!) | Iron Sword (!) | Blue Silk | Blue Silk | Diamond Ore | Diamond Ore | White Silk | White Silk |
 | 30 | Bronze | Bronze | Iron | Iron | Alloy | Alloy | Mythril | Mythril |
-| 268435486 | *(garbage - JSON extraction artifact)* | | | | | | | |
+| 268435486 | *(tagged: tag 1, index 30 - see Get Treasure Index Table.md)* | | | | | | | |
 
-> **Note:** `mine_3.cft` not yet provided — `spawn_coordinates.json` shows
-> 5 monsters (0 chests) in `mine_3` that aren't traced below.
+> **Note:** `mine_3.cft` (the boss room) isn't traced here —
+> `spawn_coordinates.json` shows 5 monsters (0 chests) in `mine_3`.
 
 ## The Mine of Cathuriges - Area 1 (`mine_0`)
 
@@ -290,7 +284,7 @@ Extraction tool: `get_treasure_dispatch.py` (reusable per-stage; see
 | 16 | Stone of Blizzard | Stone of Blizzard | Stone of Blizzard | Stone of Blizzard | Stone of Blizzard | Stone of Blizzard | Stone of Blizzard | Stone of Blizzard |
 | 27 | Bronze | Bronze Shard | Iron Shard | Iron | Flame Craft | Magma Rock | Flame Armor | Magma Rock |
 | 29 | Copper Sword (!) | Crystal Ball | Crystal Ball | Cockatrice Scale | Mythril | Mythril | Diamond Ore | Cockatrice Scale |
-| 268435468 | *(garbage - JSON extraction artifact)* | | | | | | | |
+| 268435468 | *(tagged: tag 1, index 12 - see Get Treasure Index Table.md)* | | | | | | | |
 
 ## The Mine of Cathuriges - Area 3 (`mine_2`)
 
@@ -357,8 +351,8 @@ Extraction tool: `get_treasure_dispatch.py` (reusable per-stage; see
 | 30 | Bronze | Bronze Shard | Iron Shard | Iron | Flame Craft | Magma Rock | Flame Armor | Magma Rock |
 | 51 | Stone of Life | Stone of Life | Stone of Life | Stone of Life | Stone of Life | Stone of Life | Stone of Life | Stone of Life |
 | 52 | Copper Sword (!) | Iron Sword (!) | Steel Blade (!) | Feather Saber (!) | Bastard Sword (!) | Defender (!) | Rune Blade (!) | ? (!) |
-| 268435456 | *(garbage - JSON extraction artifact)* | | | | | | | |
-| 536870942 | *(garbage - JSON extraction artifact)* | | | | | | | |
+| 268435456 | *(tagged: tag 1, index 0 - see Get Treasure Index Table.md)* | | | | | | | |
+| 536870942 | *(tagged: tag 2, index 30 - see Get Treasure Index Table.md)* | | | | | | | |
 
 ## Tida - Area 2 (`ruin_1`)
 
@@ -394,12 +388,12 @@ Extraction tool: `get_treasure_dispatch.py` (reusable per-stage; see
 | 30 | Bronze | Bronze Shard | Iron Shard | Iron | Flame Craft | Magma Rock | Flame Armor | Magma Rock |
 | 31 | Copper Sword (!) | Iron Sword (!) | Steel Blade (!) | Mythril | Mythril | Alloy | Tiny Crystal | Diamond Ore |
 | 34 | Copper Sword (!) | Iron Sword (!) | Faerie Kit | Faerie Kit | Faerie Kit | Angel Kit | Angel Kit | Angel Kit |
-| 805306377 | *(garbage - JSON extraction artifact)* | | | | | | | |
-| 1073741825 | *(garbage - JSON extraction artifact)* | | | | | | | |
-| 1073741850 | *(garbage - JSON extraction artifact)* | | | | | | | |
+| 805306377 | *(tagged: tag 3, index 9 - see Get Treasure Index Table.md)* | | | | | | | |
+| 1073741825 | *(tagged: tag 4, index 1 - see Get Treasure Index Table.md)* | | | | | | | |
+| 1073741850 | *(tagged: tag 4, index 26 - see Get Treasure Index Table.md)* | | | | | | | |
 
-> **Note:** `gigas_8.cft` not provided (2 monsters, 0 chests) — presumably
-> the boss stage you're intentionally skipping.
+> **Note:** `gigas_8.cft` (the boss room; 2 monsters, 0 chests) isn't
+> traced here.
 
 ## Moschet Manor - Area 1 (`gigas_0`)
 
@@ -527,8 +521,8 @@ Extraction tool: `get_treasure_dispatch.py` (reusable per-stage; see
 | 15 | Stone of Fire | Stone of Fire | Stone of Fire | Stone of Fire | Stone of Fire | Stone of Fire | Stone of Fire | Stone of Fire |
 | 16 | Stone of Blizzard | Stone of Blizzard | Stone of Blizzard | Stone of Blizzard | Stone of Blizzard | Stone of Blizzard | Stone of Blizzard | Stone of Blizzard |
 
-> **Note:** `water_1.cft` not yet provided — `spawn_coordinates.json` shows
-> 11 monsters (0 chests) in `water_1` that aren't traced below.
+> **Note:** `water_1.cft` (the boss room) isn't traced here —
+> `spawn_coordinates.json` shows 11 monsters (0 chests) in `water_1`.
 
 ## Veo Lu Sluice - Area 1 (`water_0`)
 
@@ -585,7 +579,7 @@ Extraction tool: `get_treasure_dispatch.py` (reusable per-stage; see
 | 50 | Copper Sword (!) | Iron Sword (!) | Steel Blade (!) | Feather Saber (!) | Bastard Sword (!) | Defender (!) | Rune Blade (!) | Stone of Fire |
 | 51 | Stone of Life | Stone of Life | Stone of Life | Stone of Life | Stone of Life | Stone of Life | Stone of Life | Stone of Life |
 | 52 | Copper Sword (!) | Iron Sword (!) | Steel Blade (!) | Feather Saber (!) | Bastard Sword (!) | Defender (!) | Rune Blade (!) | ? (!) |
-| 1073741824 | *(garbage - JSON extraction artifact)* | | | | | | | |
+| 1073741824 | *(tagged: tag 4, index 0 - see Get Treasure Index Table.md)* | | | | | | | |
 
 ## Selepation Cave - Area 1 (`cave_0`)
 
@@ -651,8 +645,8 @@ Extraction tool: `get_treasure_dispatch.py` (reusable per-stage; see
 | 27 | Copper Sword (!) | Iron Sword (!) | Thunderball | Thunderball | Bastard Sword (!) | Defender (!) | Thunderball | Thunderball |
 | 28 | Copper Sword (!) | Iron Sword (!) | Gigas Claw | Gigas Claw | Bastard Sword (!) | Defender (!) | Gigas Claw | Gigas Claw |
 
-> **Note:** `fort_1.cft` not provided (6 monsters, 0 chests) — presumably
-> the boss stage you're intentionally skipping.
+> **Note:** `fort_1.cft` (the boss room; 6 monsters, 0 chests) isn't
+> traced here.
 
 ## Daemon's Court (`fort_0`)
 
@@ -695,11 +689,11 @@ Extraction tool: `get_treasure_dispatch.py` (reusable per-stage; see
 | 26 | Copper Sword (!) | Iron Sword (!) | Coeurl Whisker | Coeurl Whisker | Bastard Sword (!) | Defender (!) | Coeurl Whisker | Coeurl Whisker |
 | 27 | Iron | Iron | Mythril | Mythril | Bastard Sword (!) | Alloy | Alloy | Mythril |
 | 28 | Copper Sword (!) | Heavenly Dust | Heavenly Dust | Holy Water | Bastard Sword (!) | Heavenly Dust | Heavenly Dust | Holy Water |
-| 268435456 | *(garbage - JSON extraction artifact)* | | | | | | | |
-| 536870912 | *(garbage - JSON extraction artifact)* | | | | | | | |
+| 268435456 | *(tagged: tag 1, index 0 - see Get Treasure Index Table.md)* | | | | | | | |
+| 536870912 | *(tagged: tag 2, index 0 - see Get Treasure Index Table.md)* | | | | | | | |
 
-> **Note:** `swamp_3.cft` not provided (4 monsters, 0 chests) — presumably
-> the boss stage you're intentionally skipping.
+> **Note:** `swamp_3.cft` (the boss room; 4 monsters, 0 chests) isn't
+> traced here.
 
 ## Conall Curach - Area 1 (`swamp_0`)
 
@@ -801,8 +795,8 @@ Extraction tool: `get_treasure_dispatch.py` (reusable per-stage; see
 | 29 | Copper Sword (!) | Iron Sword (!) | Orichalcum | Orichalcum | Diamond Ore | Diamond Ore | Diamond Ore | Orichalcum |
 | 30 | Bronze | Bronze | Iron | Iron | Alloy | Alloy | Mythril | Mythril |
 
-> **Note:** `city_2.cft` not provided (4 monsters, 0 chests) — presumably
-> the boss stage you're intentionally skipping.
+> **Note:** `city_2.cft` (the boss room; 4 monsters, 0 chests) isn't
+> traced here.
 
 ## Rebena Te Ra - Area 1 (`city_0`)
 
@@ -836,7 +830,7 @@ Extraction tool: `get_treasure_dispatch.py` (reusable per-stage; see
 | 28 | Copper Sword (!) | Iron Sword (!) | Tiny Crystal | Tiny Crystal | Alloy | Alloy | Diamond Ore | Diamond Ore |
 | 29 | Copper Sword (!) | Iron Sword (!) | Blue Silk | Blue Silk | Diamond Ore | Diamond Ore | White Silk | White Silk |
 | 30 | Copper Sword (!) | Iron Sword (!) | Fiend's Claw | Fiend's Claw | Mythril | Mythril | Mythril | Devil's Claw |
-| 268435465 | *(garbage - JSON extraction artifact)* | | | | | | | |
+| 268435465 | *(tagged: tag 1, index 9 - see Get Treasure Index Table.md)* | | | | | | | |
 
 ## Rebena Te Ra - Area 2 (`city_1`)
 
@@ -871,11 +865,10 @@ Extraction tool: `get_treasure_dispatch.py` (reusable per-stage; see
 | 29 | Copper Sword (!) | Holy Water | Holy Water | Heavenly Dust | Diamond Ore | Diamond Ore | Holy Water | Heavenly Dust |
 | 30 | Copper Sword (!) | Iron Sword (!) | Cerberus Fang | Cerberus Fang | Mythril | Mythril | Mythril | Cerberus Fang |
 
-> **Note:** `lava_2.cft` not provided (7 monsters, 0 chests) — presumably
-> the boss stage you're intentionally skipping. Also worth flagging: the
-> reference doc lists Mount Kilanda chest contents as "N/A" (not mapped by
-> any existing community guide) - the table below is new data, not a
-> cross-check against prior documentation like the other stages.
+> **Note:** `lava_2.cft` (the boss room; 7 monsters, 0 chests) isn't
+> traced here. Community chest lists don't cover Mount Kilanda's chests, so
+> the table below is new data rather than a cross-check like the other
+> stages.
 
 ## Mount Kilanda - Area 1 (`lava_0`)
 
@@ -935,11 +928,10 @@ Extraction tool: `get_treasure_dispatch.py` (reusable per-stage; see
 | 27 | Copper Sword (!) | Iron Sword (!) | Ogre Fang | Ogre Fang | Bastard Sword (!) | Ogre Fang | Ogre Fang | Diamond Armor |
 | 28 | Copper Sword (!) | Iron Sword (!) | Coeurl Whisker | Coeurl Whisker | Bastard Sword (!) | Coeurl Whisker | Coeurl Whisker | Ancient Potion |
 
-> **Note:** `desert_2.cft` not provided (14 monsters, 0 chests) - worth
-> double-checking whether this is actually the boss file, since 14
-> monsters is higher than the boss-stage counts seen elsewhere (typically
-> 3-8). Also: the reference doc lists Lynari Desert chest contents as
-> "N/A" - the table below is new data, not a cross-check.
+> **Note:** `desert_2.cft` (the boss room; 14 monsters, 0 chests - more
+> than the 3-8 typical of other boss rooms) isn't traced here. Community
+> chest lists don't cover Lynari Desert's chests, so the table below is new
+> data rather than a cross-check.
 
 ## Lynari Desert - Area 1 (`desert_0`)
 
@@ -1005,10 +997,9 @@ Extraction tool: `get_treasure_dispatch.py` (reusable per-stage; see
 | 26 | Copper Sword (!) | Iron Sword (!) | Chimera's Horn | Chimera's Horn | Bastard Sword (!) | Chimera's Horn | Chimera's Horn | Legendary Weapon |
 | 27 | Copper Sword (!) | Iron Sword (!) | Needle | Needle | Bastard Sword (!) | Defender (!) | Needle | Needle |
 
-> **Note:** `meteo_2.cft` and `meteo_3.cft` not provided (24 monsters each,
-> 0 chests) - worth checking whether these are real areas rather than boss
-> files, since 24 monsters is well above the boss-stage pattern seen
-> elsewhere.
+> **Note:** `meteo_2.cft` and `meteo_3.cft` (24 monsters each, 0 chests)
+> aren't traced here. 24 monsters is well above the usual boss-room count,
+> so they are probably regular areas rather than boss rooms.
 
 ## Mount Vellenge - Area 1 (`meteo_0`)
 

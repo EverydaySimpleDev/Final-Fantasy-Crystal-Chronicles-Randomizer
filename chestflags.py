@@ -83,10 +83,10 @@ def chest_table(ref_iso, script, discs):
 
 CYCLE_BITS = {1: 0x10, 2: 0x20, 3: 0x40}   # SPAWN_TBOX first field
 
-# Chests players have confirmed can't be reached in some cycles even though
-# their loot isn't empty there: {dungeon script: {chest: [cycles]}}.
+# Chests that can't be reached in some cycles (found by in-game testing)
+# even though their loot isn't empty there: {dungeon script: {chest: [cycles]}}.
 UNREACHABLE = {
-    "gob": {2: [1], 3: [1], 13: [1]},     # Game8 chests 2, 1 and 10 (2026-10-07)
+    "gob": {2: [1], 3: [1], 13: [1]},     # Game8 chests 2, 1 and 10: can't be reached in cycle 1
 }
 
 

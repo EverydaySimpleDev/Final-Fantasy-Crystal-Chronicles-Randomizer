@@ -341,9 +341,11 @@ py cft.py tree|blocks|find|strings|block|calls <file.cft>    # inspect compiled 
   default randomizing changes both. Use `--chests-only` (or untick "Randomize
   enemy drops too" in the GUI) to limit changes to the Game8-identified chests.
 - The **end-of-dungeon boss/bonus reward** is a separate subsystem (8 artifact
-  sets gated by cycle and bonus points) and is **not** touched by these tools —
-  chest randomization is independent of it. (See
-  `Boss Reward Sets (GameCube guide).md` for a transcription.)
+  sets gated by cycle and bonus points, stored in `newbattle.cfd`) — chest
+  randomization is independent of it. It is only changed when a JSON patch
+  sets `"_randomize_bonus_pools": true` or supplies `"_bonus_pools"`
+  overrides. (See `Boss Reward Sets (GameCube guide).md` for a transcription
+  of the vanilla sets.)
 - **All 14 dungeons** are covered, including Tida, Moschet Manor, Daemon's Court,
   and Rebena Te Ra. Dungeons span **multiple area files** (`_0`, `_1`, …) and the
   randomizer processes every area, with the 4-artifacts-per-cycle cap applied

@@ -315,15 +315,14 @@ class RandomizerTab(ttk.Frame):
                   foreground="#a33", wraplength=520, justify="left").pack(anchor="w")
         ttk.Checkbutton(gt, text="Skip the opening intro cutscene",
                         variable=self.skip_intro).pack(anchor="w", pady=(6, 0))
-        ttk.Checkbutton(gt, text="Show Goblin Wall on the world map from Year 1",
-                        variable=self.goblin_wall_always_visible).pack(anchor="w", pady=(6, 0))
+        self._goblin_box = ttk.Checkbutton(gt, text="Show Goblin Wall on the world map from Year 1",
+                                           variable=self.goblin_wall_always_visible)
+        self._goblin_box.pack(anchor="w", pady=(6, 0))
         ttk.Checkbutton(gt, text="Randomize Miasma Stream elements per seed",
                         variable=self.randomize_miasma_elements).pack(anchor="w", pady=(6, 0))
-        ttk.Label(gt, text="EXPERIMENTAL: REQUIRES \"Show Goblin Wall...\" above to also be "
-                  "checked - that's what guarantees every element is obtainable from Year 1, "
-                  "so a shuffled stream can never demand one you have no way to get yet. "
-                  "Randomization will be skipped (with a log message) if the other box isn't "
-                  "checked too.",
+        ttk.Label(gt, text="EXPERIMENTAL: also turns on \"Show Goblin Wall...\" above - that's "
+                  "what guarantees every element is obtainable from Year 1, so a shuffled "
+                  "stream can never demand one you have no way to get yet.",
                   foreground="#a33", wraplength=520, justify="left").pack(anchor="w")
         ttk.Checkbutton(gt, text="Lock stages behind key artifacts (per dungeon)",
                         variable=self.stage_key_locks).pack(anchor="w", pady=(6, 0))
@@ -340,10 +339,11 @@ class RandomizerTab(ttk.Frame):
                   "(Mount Kilanda and Mount Vellenge stay put). Each spot keeps its own "
                   "Miasma Stream gating and Myrrh-drop elements, so progression works like "
                   "vanilla; only the dungeon you enter changes, and its exits return you to "
-                  "the spot you came from. Stage-key locks follow the dungeons. Not for "
-                  "Archipelago seeds (the apworld assumes vanilla locations). To choose "
-                  "dungeons per spot, use Export JSON / Patch from JSON and edit "
-                  "\"_world_zones\".",
+                  "the spot you came from. Stage-key locks follow the dungeons. Also turns "
+                  "on \"Show Goblin Wall...\", since a dungeon may be moved onto its spot. "
+                  "For Archipelago seeds, use the AP world's Shuffle Loading Zones option "
+                  "instead. To choose dungeons per spot, use Export JSON / Patch from JSON "
+                  "and edit \"_world_zones\".",
                   foreground="#a33", wraplength=520, justify="left").pack(anchor="w")
         self.world_zone_icons_box = ttk.Checkbutton(
             gt, text="Also show each spot's new dungeon building on the world map",
@@ -354,6 +354,16 @@ class RandomizerTab(ttk.Frame):
                                             else ["disabled"])
         self.randomize_world_zones.trace_add("write", _sync_zone_icons)
         _sync_zone_icons()
+        # The zone and Miasma shuffles rely on Goblin Wall's spot in Year 1, so they
+        # tick and lock its box.
+        def _sync_goblin(*_):
+            forced = self.randomize_world_zones.get() or self.randomize_miasma_elements.get()
+            if forced:
+                self.goblin_wall_always_visible.set(True)
+            self._goblin_box.state(["disabled"] if forced else ["!disabled"])
+        self.randomize_world_zones.trace_add("write", _sync_goblin)
+        self.randomize_miasma_elements.trace_add("write", _sync_goblin)
+        _sync_goblin()
         ttk.Checkbutton(gt, text="Use progression logic for loading zones and stage keys (recommended)",
                         variable=self.progression_logic).pack(anchor="w", pady=(6, 0))
         ttk.Label(gt, text="Picks the zone layout and the stage-key order so every year has "
@@ -488,7 +498,10 @@ class RandomizerTab(ttk.Frame):
         ns.start_loc = self.start_loc.get()
         ns.skip_mio = self.skip_mio.get()
         ns.skip_intro = self.skip_intro.get()
-        ns.goblin_wall_always_visible = self.goblin_wall_always_visible.get()
+        # forced on by the zone / Miasma shuffles, which rely on Goblin Wall's spot in Year 1
+        ns.goblin_wall_always_visible = (self.goblin_wall_always_visible.get()
+                                         or self.randomize_world_zones.get()
+                                         or self.randomize_miasma_elements.get())
         ns.randomize_miasma_elements = self.randomize_miasma_elements.get()
         ns.stage_key_locks = self.stage_key_locks.get()
         ns.randomize_bosses = self.randomize_bosses.get()
@@ -1042,9 +1055,9 @@ GAMEPLAY TWEAKS (Randomizer tab)
     Show Goblin Wall on the world map from Year 1  - reveals its road/icon
        from the start instead of waiting for the Year 1->2 transition.
     Randomize Miasma Stream elements  - EXPERIMENTAL, shuffles which element
-       each of the 4 rotating streams needs per year. REQUIRES "Show Goblin
-       Wall..." above to also be checked (guarantees every element is
-       obtainable from Year 1) - skipped with a log warning otherwise.
+       each of the 4 rotating streams needs per year. Also turns on "Show
+       Goblin Wall..." above (guarantees every element is obtainable from
+       Year 1).
     Randomize post-stage bonus rewards (Bonus Pools section)  - randomizes
        the end-of-dungeon score-reward pool, separate from chests/enemy
        drops. 13 of 14 dungeons have one (Mount Vellenge has none in the
@@ -1070,7 +1083,8 @@ GAMEPLAY TWEAKS (Randomizer tab)
        each world-map spot leads to (12 dungeons; Mount Kilanda and Mount
        Vellenge stay). A spot keeps its Miasma Stream gating and Myrrh-drop
        elements; the dungeon's exits return the caravan to that spot. Stage-key
-       locks follow the dungeons. Not for Archipelago seeds.
+       locks follow the dungeons. Also turns on "Show Goblin Wall...".
+       For Archipelago seeds, use the AP world's Shuffle Loading Zones option.
        JSON: "_randomize_world_zones": true shuffles on patch; "_world_zones"
        maps each spot (named by its vanilla dungeon) to a dungeon from
        "_world_zone_choices"; an entry naming the spot's own dungeon means
@@ -1307,27 +1321,26 @@ class CustomItemTab(ttk.Frame):
 # AP Patch tab
 # ---------------------------------------------------------------------------
 class APPatchTab(ttk.Frame):
-    """Copies a vanilla ISO and patches all game8 chests for Archipelago.
-
-    Standard mode: every chest becomes AP Item (0x162); client delivers real items.
-    Hybrid mode  : add a .ffcc file — your own items appear physically in chests
-                   while items belonging to other players still show as AP Item.
-    """
+    """Copies a vanilla ISO and patches it for Archipelago from the seed's
+    .ffcc file: your own items appear in chests, other players' items show as
+    AP Item, and the seed's options (stage keys, Goblin Wall in Year 1, Miasma
+    Streams, ...) are applied."""
 
     def __init__(self, nb):
         super().__init__(nb, padding=8)
         self.src  = tk.StringVar()   # vanilla ISO — read only, never modified
         self.out  = tk.StringVar()   # AP-patched copy — what gets written
-        self.ffcc = tk.StringVar()   # optional .ffcc placement file (hybrid mode)
+        self.ffcc = tk.StringVar()   # the seed's .ffcc placement file (required)
         self._out_chosen = False     # True once a custom output file name was picked
 
         ttk.Label(self, text=(
-            "Creates an Archipelago-ready ISO.\n\n"
-            "Standard patch  (no .ffcc file): every game8 chest is replaced with AP Item.\n"
-            "  The client intercepts each pickup and writes the real item to memory.\n\n"
-            "Hybrid patch  (with .ffcc file): your own items appear as real item models\n"
-            "  in the chest.  Items for other players still show as AP Item.  The game\n"
-            "  engine gives your items on pickup; the client skips those to avoid doubles."
+            "Creates an Archipelago-ready ISO from your seed's .ffcc file\n"
+            "(or the .zip it came in, from the multiworld host).\n\n"
+            "Your own items appear as real item models in chests; items for other players\n"
+            "show as AP Item, and the client delivers what you receive.  Artifacts, Spell\n"
+            "Rings and stage keys always come through the client so they can't be lost.\n"
+            "The seed's options (stage keys, Goblin Wall in Year 1, Miasma Streams, ...)\n"
+            "come from the .ffcc file too, so the patch needs it."
         ), justify="left", foreground="#444").pack(anchor="w", pady=(0, 8))
 
         sf = ttk.Frame(self); sf.pack(fill="x", pady=2)
@@ -1342,15 +1355,15 @@ class APPatchTab(ttk.Frame):
         ttk.Button(of, text="Save as…", command=self._browse_out).pack(side="left")
 
         ff = ttk.Frame(self); ff.pack(fill="x", pady=2)
-        ttk.Label(ff, text=".ffcc placement file (optional — hybrid mode):", width=36).pack(side="left")
+        ttk.Label(ff, text="Seed file (.ffcc or its .zip):", width=36).pack(side="left")
         ttk.Entry(ff, textvariable=self.ffcc).pack(side="left", fill="x", expand=True, padx=4)
         ttk.Button(ff, text="Browse…", command=self._browse_ffcc).pack(side="left")
 
         bf = ttk.Frame(self); bf.pack(fill="x", pady=8)
         self._btn = ttk.Button(bf, text="Patch for Archipelago", command=self.do_patch)
         self._btn.pack(side="left")
-        self._mode_lbl = ttk.Label(bf, text="  Mode: standard (all chests → AP Item)",
-                                   foreground="#666")
+        self._mode_lbl = ttk.Label(bf, text="  Choose your seed's .ffcc file",
+                                   foreground="#a60")
         self._mode_lbl.pack(side="left")
         self.ffcc.trace_add("write", lambda *_: self._update_mode_label())
 
@@ -1360,12 +1373,11 @@ class APPatchTab(ttk.Frame):
     def _update_mode_label(self, *_):
         f = self.ffcc.get().strip()
         if f and os.path.isfile(f):
-            self._mode_lbl.config(text="  Mode: hybrid (own items in chest, others → AP Item)",
-                                  foreground="#0a0")
+            self._mode_lbl.config(text="  Seed file found", foreground="#0a0")
         elif f:
-            self._mode_lbl.config(text="  Mode: hybrid (file not found yet)", foreground="#a60")
+            self._mode_lbl.config(text="  Seed file not found", foreground="#a60")
         else:
-            self._mode_lbl.config(text="  Mode: standard (all chests → AP Item)", foreground="#666")
+            self._mode_lbl.config(text="  Choose your seed's .ffcc file", foreground="#a60")
 
     @staticmethod
     def _same(a, b):
@@ -1455,11 +1467,14 @@ class APPatchTab(ttk.Frame):
             return
 
         ffcc = self.ffcc.get().strip()
-        hybrid = bool(ffcc and os.path.isfile(ffcc))
-        if ffcc and not hybrid:
-            messagebox.showerror(".ffcc file not found",
-                                 f"The .ffcc file was not found:\n{ffcc}\n\n"
-                                 "Clear the field to use standard mode, or fix the path.")
+        if not ffcc:
+            messagebox.showwarning("No seed file",
+                                   "Choose your seed's .ffcc file (or the .zip it came in).\n\n"
+                                   "It holds your item placements and the seed's options, "
+                                   "such as stage keys and Goblin Wall in Year 1.")
+            return
+        if not os.path.isfile(ffcc):
+            messagebox.showerror("Seed file not found", f"The seed file was not found:\n{ffcc}")
             return
 
         if (os.path.isfile(out) and
@@ -1473,22 +1488,13 @@ class APPatchTab(ttk.Frame):
             messagebox.showerror("Copy failed", str(e))
             return
 
-        mode_str = "hybrid" if hybrid else "standard"
         self.log.write(f"Copied {os.path.basename(src)}  →  {os.path.basename(out)}")
-        self.log.write(f"Patching chests ({mode_str} mode) — this may take a moment…")
+        self.log.write("Patching for Archipelago — this may take a moment…")
         self._btn.config(state="disabled")
         self._q = queue.Queue()
-        if hybrid:
-            threading.Thread(target=self._worker_hybrid, args=(out, src, ffcc),
-                             daemon=True).start()
-        else:
-            threading.Thread(target=self._worker_standard, args=(out, src),
-                             daemon=True).start()
+        threading.Thread(target=self._worker_hybrid, args=(out, src, ffcc),
+                         daemon=True).start()
         self.after(100, self._poll)
-
-    def _worker_standard(self, out, src):
-        result = run_capture(rnd.cmd_ap_patch, out, src)
-        self._q.put(result)
 
     def _worker_hybrid(self, out, src, ffcc):
         result = run_capture(rnd.cmd_hybrid_patch, out, src, ffcc)

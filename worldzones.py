@@ -282,7 +282,7 @@ def apply_plan(iso, plan, log=None):
 # cell as [plate, col, row, 0], indexed by the dungeon's display index DD.
 # Changing a stop's building = shifting its part's UVs to another cell (and
 # switching the material if the cell is on the other plate). Same file size.
-# Confirmed in game 2026-10-06 (Tipa's stop showing River Belle Path's art).
+# Confirmed in game (e.g. Tipa's stop showing River Belle Path's art).
 # ---------------------------------------------------------------------------
 
 WORLD_MPL = "dvd/map/stg033/map000_0.mpl"

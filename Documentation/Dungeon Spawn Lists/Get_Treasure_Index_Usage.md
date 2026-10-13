@@ -6,7 +6,7 @@ and every chest/monster spawn that references it, individually
 addressed. Chest indices with a high flag bit (cycle-gating) are
 shown masked to their real index (`& 0xFFFF`); raw value kept in
 parentheses where it differs. Monster `E` values above 1,000,000 are
-the known JSON-extraction garbage values and are listed separately.
+tagged values (`tag << 28 | index`) and are listed separately.
 
 ---
 
@@ -246,7 +246,7 @@ the known JSON-extraction garbage values and are listed separately.
 - Mu @ `0x47eab`
 - Goblin (Sword) @ `0x47ef5`
 
-### Garbage E-value entries (JSON extraction artifacts)
+### Tagged E-value entries (`tag << 28 | index`)
 
 - Goblin (Sword) (E=268435474) @ `0x4813e`
 - Goblin (Sword) (E=536870931) @ `0x484a3`
@@ -876,7 +876,7 @@ the known JSON-extraction garbage values and are listed separately.
 **Chests:**
 - `0x44244`
 
-### Garbage E-value entries (JSON extraction artifacts)
+### Tagged E-value entries (`tag << 28 | index`)
 
 - Goblin Chieftain (E=268435486) @ `0x4380f`
 
@@ -1124,7 +1124,7 @@ the known JSON-extraction garbage values and are listed separately.
 - `0x40bb0`
 - `0x40be0`
 
-### Garbage E-value entries (JSON extraction artifacts)
+### Tagged E-value entries (`tag << 28 | index`)
 
 - Ogre (E=268435468) @ `0x408f5`
 
@@ -1467,7 +1467,7 @@ the known JSON-extraction garbage values and are listed separately.
 - Skeleton (Sword) @ `0x47efd`
 - Skeleton (Sword) @ `0x47f47`
 
-### Garbage E-value entries (JSON extraction artifacts)
+### Tagged E-value entries (`tag << 28 | index`)
 
 - Mushroom Forest Carrion Worm (E=268435456) @ `0x47f91`
 - Bomb (E=536870942) @ `0x487d7`
@@ -1669,7 +1669,7 @@ the known JSON-extraction garbage values and are listed separately.
 **Monsters:**
 - Tida Carrion Worm @ `0x458e8`
 
-### Garbage E-value entries (JSON extraction artifacts)
+### Tagged E-value entries (`tag << 28 | index`)
 
 - Bomb (E=805306377) @ `0x45263`
 - Mushroom Forest Carrion Worm (E=1073741825) @ `0x45c13`
@@ -2209,7 +2209,7 @@ the known JSON-extraction garbage values and are listed separately.
 - Lizardman (Mage) @ `0x4a51f`
 - Lizardman (Mage) @ `0x4a5b5`
 
-### Garbage E-value entries (JSON extraction artifacts)
+### Tagged E-value entries (`tag << 28 | index`)
 
 - Griffin (E=1073741824) @ `0x4a6e1`
 
@@ -2795,7 +2795,7 @@ the known JSON-extraction garbage values and are listed separately.
 **Chests:**
 - `0x48af1`
 
-### Garbage E-value entries (JSON extraction artifacts)
+### Tagged E-value entries (`tag << 28 | index`)
 
 - Gold Lizard Skirmisher (E=268435456) @ `0x47972`
 - Gold Lizard Skirmisher (E=536870912) @ `0x479b9`
@@ -3553,7 +3553,7 @@ the known JSON-extraction garbage values and are listed separately.
 **Chests:**
 - `0x488b6`
 
-### Garbage E-value entries (JSON extraction artifacts)
+### Tagged E-value entries (`tag << 28 | index`)
 
 - Vampire Bat (E=268435465) @ `0x47fe3`
 - Sonic Bat (E=268435465) @ `0x481a0`

@@ -1,4 +1,4 @@
-"""FFCC item ID <-> name tables and category helper (from FFCC Notes)."""
+"""FFCC item ID <-> name tables and category helper."""
 
 # Curated names for the ranges that appear in chests. Anything not listed gets a
 # generated "0xNNN (Category)" label.

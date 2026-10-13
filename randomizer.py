@@ -86,8 +86,8 @@ VALID_LO, VALID_HI = 0x001, 0x1ed   # collectible-item ID window
 DROPPABLE_CATS = {"Artifact", "Magicite", "PhoenixDown", "Material", "Food", "Recipe"}
 
 # IDs inside the droppable categories that are still Unused / Test / unimple-
-# mented and must never be placed (from "FFCC Notes/Inventory Code Lists.txt"
-# plus emulator testing).
+# mented and must never be placed (from community item ID lists plus
+# emulator testing).
 EXCLUDE = set()
 EXCLUDE |= {0x156, 0x160, 0x161, 0x170}                   # unused materials
 # (0x162 was here too, but it's now repurposed as the custom "AP Item" - a real,
@@ -465,7 +465,7 @@ def randomize_shops(iso, rng, only=None, apply=True, pool=None):
 # ---------------------------------------------------------------------------
 # Post-stage bonus rewards are NOT in any .cft script - they're a flat table
 # in dvd/cft/newbattle.cfd of fixed-size CBossArtifactStage structs (one per
-# dungeon, 0x168 bytes each, per the real decomp struct in include/ffcc/
+# dungeon, 0x168 bytes each, per the decomp struct in include/ffcc/
 # game.h): m_bonusConditions[16] (0x00-0x20, unrelated per-spawn data),
 # m_entries (0x20-0x160: 40x 8-byte entries, but only the first 8 -
 # m_prefixEntries - are the actual random reward pool CGame::GetBossArtifact
@@ -473,8 +473,8 @@ def randomize_shops(iso, rng, only=None, apply=True, pool=None):
 # m_rankThresholds[4] (0x160-0x168, the score-tier cutoffs shown in-game as
 # the point requirements). Each of the 8 reward entries holds 4 item ids
 # (m_values[4], 2 bytes each) - 32 real item-id slots per dungeon.
-# Verified byte-exact against a real ISO's newbattle.cfd - block offsets
-# found by locating each dungeon's own m_rankThresholds pattern directly.
+# Block offsets were located via each dungeon's m_rankThresholds pattern and
+# verified against a retail newbattle.cfd.
 NEWBATTLE_ENTRY_COUNT = 8      # m_prefixEntries[8] - the real reward pool
 NEWBATTLE_ENTRY_SIZE = 8       # m_values[4], 2 bytes each
 NEWBATTLE_BLOCKS = {           # dungeon script -> its CBossArtifactStage file offset
@@ -482,8 +482,7 @@ NEWBATTLE_BLOCKS = {           # dungeon script -> its CBossArtifactStage file o
     "ruin": 0x1e60, "gigas": 0x1fc8, "lava": 0x2130, "fort": 0x2298,
     "cave": 0x2400, "water": 0x2568, "desert": 0x26d0, "swamp": 0x2838,
     "city": 0x29a0,
-    # "meteo" has NO block - that slot in the real file is all zeros, not a
-    # missed offset (checked directly) - left out rather than guessed.
+    # "meteo" has no block: its slot in the file is all zeros.
 }
 
 
@@ -714,8 +713,7 @@ def patch_mog_never_tired(iso, apply=True):
     return True
 
 
-# Starting-location patch (user-discovered and byte-verified, 2026-09-11): a
-# new game's opening camera focus (farewell_0.cft) and the caravan's actual
+# Starting-location patch (byte-verified): a new game's opening camera focus (farewell_0.cft) and the caravan's actual
 # initial spawn point (ffcc_5.cft) each read a dynamic/persisted value that
 # currently always resolves to Tipa. Replacing that 5-byte read with a
 # hardcoded `PUSHI <id>` forces a specific town instead. Only destinations
@@ -799,10 +797,9 @@ def starting_location_status(iso):
 # Skip Meteor Parasite -> Mio questions -> Raem: a single-character patch in
 # meteo_2.cft's own STR pool retargets the post-Meteor-Parasite script name
 # from "last_5" (the memory/diary-check gate that leads into the Mio
-# questions) to "last_3" (the Raem fight itself). User-discovered and byte-
-# verified (2026-09-13). EXPERIMENTAL: unclear whether skipping the Mio
-# questions this way leaves any state unset that a later check expects -
-# not yet confirmed safe by a full playthrough.
+# questions) to "last_3" (the Raem fight itself). Byte-verified.
+# Experimental: skipping the Mio questions this way may leave some state unset
+# that a later check expects; not yet tested through a full playthrough.
 METEO2_SKIP_DISC = "dvd/cft/meteo_2.cft"
 METEO2_SKIP_OFFSET = 0x55DC3
 METEO2_SKIP_ORIG = bytes.fromhex("35")      # ASCII '5' (of "last_5")
@@ -848,8 +845,8 @@ def skip_mio_questions_status(iso):
 
 # Skip the opening intro cutscene: a 4-byte patch in world.cft's own STR pool
 # retargets the boot-time script reference from "ff44_1" to "ffcc_5",
-# jumping straight past the cutscene. User-discovered and byte-verified
-# (2026-09-23/24, confirmed working in-game). The STR pool has a duplicate
+# jumping straight past the cutscene. Byte-verified and confirmed working
+# in game. The STR pool has a duplicate
 # "ff44_1" entry immediately after this one - only this specific slot is
 # patched, leaving the duplicate (and whatever else references it) untouched.
 WORLD_INTRO_SKIP_DISC = "dvd/cft/world.cft"
@@ -898,23 +895,24 @@ def skip_intro_cutscene_status(iso):
                       f"- wrong game version?)")
 
 
-# mainBasha (world.cft) checks `currentYear >= 2` at two sites before revealing
+# mainBasha (world.cft) checks `currentYear >= 2` at three sites before revealing
 # Goblin Wall's road/icon on the world map (dispBgModel calls that show the
 # extra terrain + map marker). Each site is a PUSHI 2 feeding that comparison,
 # immediately after a read of the year global - changing the literal 2 -> 1
 # makes the check always pass (year is never < 1), permanently revealing
 # Goblin Wall from a Year 1 save without touching the year value itself or
-# anything else. Confirmed live in-game (Dolphin memory testing) before being
-# turned into this file patch.
+# anything else. Confirmed in game.
 WORLD_GOBLIN_WALL_VISIBLE_DISC = "dvd/cft/world.cft"
-WORLD_GOBLIN_WALL_VISIBLE_OFFSETS = (0x3DE9D, 0x4193C)
+# Three identical `year >= 2` gates; the first one (0x38CC3) is the one used on a
+# fresh Year 1 world map, so without it Goblin Wall stays hidden on new saves.
+WORLD_GOBLIN_WALL_VISIBLE_OFFSETS = (0x38CC3, 0x3DE9D, 0x4193C)
 WORLD_GOBLIN_WALL_VISIBLE_ORIG = bytes.fromhex("00000002")
 WORLD_GOBLIN_WALL_VISIBLE_PATCHED = bytes.fromhex("00000001")
 
 
 def patch_goblin_wall_always_visible(iso, apply=True):
-    """Change both `currentYear >= 2` checks gating Goblin Wall's world-map
-    road/icon reveal to `>= 1`, so it's visible from a Year 1 save. Two 4-byte
+    """Change all three `currentYear >= 2` checks gating Goblin Wall's world-map
+    road/icon reveal to `>= 1`, so it's visible from a Year 1 save. Three 4-byte
     site patches. Returns True once present (freshly applied or already
     there); raises if either site's bytes don't match the vanilla original or
     the patched form (wrong game version)."""
@@ -928,7 +926,7 @@ def patch_goblin_wall_always_visible(iso, apply=True):
         if all(c == WORLD_GOBLIN_WALL_VISIBLE_PATCHED for c in cur):
             return True
         for site, c in zip(WORLD_GOBLIN_WALL_VISIBLE_OFFSETS, cur):
-            if c != WORLD_GOBLIN_WALL_VISIBLE_ORIG:
+            if c not in (WORLD_GOBLIN_WALL_VISIBLE_ORIG, WORLD_GOBLIN_WALL_VISIBLE_PATCHED):
                 raise ValueError(f"unexpected bytes at Goblin-Wall-visible site 0x{site:X}: "
                                   f"{c.hex()} (expected {WORLD_GOBLIN_WALL_VISIBLE_ORIG.hex()} "
                                   f"- wrong game version?)")
@@ -944,7 +942,7 @@ def patch_goblin_wall_always_visible(iso, apply=True):
 # per year as `year mod 4`. Each of the 4 (year mod 4) cases writes all 4
 # slots as a permutation of {1,2,4,8} - 16 individual 4-byte int literals
 # total, grouped here as 4 groups of 4 (one group per `year mod 4` case, in
-# slot 0/1/2/3 order). Live-verified in-game: changing a single slot's value
+# slot 0/1/2/3 order). Verified in game: changing a single slot's value
 # in isolation does change which element that stream/road requires, and
 # doesn't affect anything else. Randomizing this is only safe paired with
 # `patch_goblin_wall_always_visible` - see that function's docstring; without
@@ -1023,17 +1021,16 @@ def goblin_wall_always_visible_status(iso):
     cur = [data[site:site + 4] for site in WORLD_GOBLIN_WALL_VISIBLE_OFFSETS]
     if all(c == WORLD_GOBLIN_WALL_VISIBLE_PATCHED for c in cur):
         return True
-    if all(c == WORLD_GOBLIN_WALL_VISIBLE_ORIG for c in cur):
-        return False
+    if all(c in (WORLD_GOBLIN_WALL_VISIBLE_ORIG, WORLD_GOBLIN_WALL_VISIBLE_PATCHED) for c in cur):
+        return False    # vanilla, or patched by an older version that missed a gate
     raise ValueError(f"unexpected bytes at Goblin-Wall-visible sites: "
                       f"{[c.hex() for c in cur]} (expected all "
                       f"{WORLD_GOBLIN_WALL_VISIBLE_ORIG.hex()} or all "
                       f"{WORLD_GOBLIN_WALL_VISIBLE_PATCHED.hex()} - wrong game version?)")
 
 
-# Trap visuals (2026-10-06): the AP client's status traps used to write a
-# status timer directly (e.g. slow = CCaravanWork+0x3E+2*8), which gives the
-# effect but no particle/sound - CGCharaObj::setSta only starts those when it
+# Trap visuals: writing a status timer directly from the AP client (e.g.
+# slow = CCaravanWork+0x3E+2*8) gives the effect but no particle/sound - CGCharaObj::setSta only starts those when it
 # sees a timer go 0 -> nonzero, and the per-frame loop in onFramePostCalc only
 # ever counts timers down. This hook gives the client a "pending" table
 # instead: each frame, for player 1's character only, a nonzero pending[i]
@@ -1146,7 +1143,7 @@ def mog_never_tired_status(iso):
 
 
 # "Development Mode" debug menu unlock (community-documented Action Replay
-# codes, translated to direct Start.dol patches, 2026-09-16): normally hidden
+# codes, translated to direct Start.dol patches): normally hidden
 # behind a retail build-check, this re-enables a real developer debug menu
 # (MUTEKI/invincible, COLCHECK, PARTICLE, CHARA INFO, and more) plus a second-
 # controller input path for it. All 9 sites verified against the retail
@@ -1155,7 +1152,7 @@ def mog_never_tired_status(iso):
 # Once applied: plug in a second GameCube controller (Port 2). On Port 2,
 # A opens the debug menu, B closes it, D-pad Up/Down moves the selection and
 # A/B toggles the highlighted entry. This is a QA test-flag menu (invincibility,
-# collision, particle/shadow toggles, etc.) - it is NOT confirmed to include a
+# collision, particle/shadow toggles, etc.) and is not known to include a
 # working free-roam camera; treat it as an experimental bonus, not a core
 # feature, and expect some entries to do nothing or destabilize the game.
 DEBUG_MENU_PATCHES = [
@@ -1612,9 +1609,8 @@ def _artifacts_per_cycle(sets):
 # (never monster drops - some enemies can drop several candidate artifacts at
 # once, which would make key delivery unreliable). See
 # Documentation/Artifact-Gated Stage Entrances.md for the in-game gating half
-# of this feature (currently only wired up for Goblin Wall as a proof of
-# concept - this section is the key-creation/placement half, usable
-# independently of how many dungeons the gate check has been extended to).
+# of this feature; this section is the key-creation/placement half and works
+# independently of the gate checks.
 #
 # `river` (River Belle Path) is always left unlocked/keyless - it's the
 # game's real starting dungeon. Every other dungeon's key is placed in a
@@ -1655,7 +1651,7 @@ STAGE_KEY_CHESTS_PER_DUNGEON = 3      # redundant copies so one missed chest isn
 # freed by neutralizing WM_MoveEnd's only call to it) rather than needing 13
 # separate dead functions. This works because every mainBasha entrance call
 # already pushes a unique per-site "stage id" as its own first argument
-# (a plain vanilla implementation detail, not something we added) - so
+# (vanilla behavior) - so
 # encountKaido's body can switch on that existing value to tell which
 # dungeon's check applies, then forward the same 8 original arguments to
 # that dungeon's own original MJ_SWING variant if the key is owned.
@@ -1668,9 +1664,8 @@ _STAGE_LOCK_ENCOUNTKAIDO_VAL_ARG0_OFF = 0x33e88               # encountKaido VAL
 _STAGE_LOCK_ENCOUNTKAIDO_CODE_OFF = 0x33ec0                   # encountKaido CODE start
 
 # (dungeon script, mainBasha call-site file offset, stage id, forward func idx)
-# stage id / forward func idx / call-site bytes all independently verified
-# against a real extracted world.cft before use (not assumed from memory).
-# The stage id is the stage script's STR index, pushed as the call's first
+# Stage ids, forward func indices and call-site bytes are verified against a
+# retail world.cft. The stage id is the stage script's STR index, pushed as the call's first
 # argument. Mount Kilanda is NOT here: it's entered through 4-argument
 # MJ_SWING calls, locked separately below (_KILANDA_*).
 _STAGE_LOCK_SITES = [
@@ -1900,7 +1895,7 @@ def patch_stage_key_locks(iso, apply=True, sites=None):
                 f.seek(off)
                 f.write(data)
 
-    # Mount Kilanda's 4-argument entrances (and the old Leuda mistake)
+    # Mount Kilanda's 4-argument entrances (and the Leuda stop repair)
     _patch_kilanda_and_leuda(iso, apply=apply)
 
     with open(iso, "r+b" if apply else "rb") as f:
@@ -1942,13 +1937,13 @@ STAGE_KEY_DESC_TEXT = {
     "swamp": "Conall Key",       # dropped "Curach" - needed to fit
 }
 # For a few IDs, the nearest "Help Message" placeholder(s) don't have enough
-# spare room for set_item_description()'s default nearby auto-search - found
-# by trial against a real ISO's c_system.cfd, not guessed. Explicit farther
-# donor slot per Documentation/Adding Custom Items and Artifacts.md's own
-# description recipe.
+# spare room for set_item_description()'s default nearby auto-search (tested
+# against a retail c_system.cfd), so they use an explicit farther donor slot,
+# per the description recipe in Documentation/Adding Custom Items and
+# Artifacts.md.
 STAGE_KEY_DESC_DONOR = {
     "lava": 0xFB,
-    "cave": 0xFC,   # distinct from lava's 0xFB - sharing one donor starved the second edit
+    "cave": 0xFC,   # distinct from lava's 0xFB - one shared donor lacks room for both
     "mine": 0x110,
     "swamp": 0x162,
 }
@@ -2040,6 +2035,13 @@ def cmd_patch(iso, json_path, max_artifacts=4):
         print(f"note: could not auto-install AP Item ({e}); JSON placing it may fail")
     with open(json_path, encoding="utf-8") as f:
         spec = json.load(f)
+    # Moved dungeons and shuffled Miasma Streams both rely on Goblin Wall's spot
+    # being open in Year 1, so either one turns that patch on.
+    import worldzones
+    zones_moved = spec.get("_randomize_world_zones") or worldzones.normalize(spec.get("_world_zones") or {})
+    if (zones_moved or spec.get("_randomize_miasma_elements")) and not spec.get("_goblin_wall_always_visible"):
+        spec["_goblin_wall_always_visible"] = True
+        print("Goblin Wall in Year 1 turned on (needed by the loading-zone / Miasma Stream shuffle).")
     boss_plan = _boss_plan_from_spec(spec)
     # `_progression_logic` (default false): an imported JSON is applied as
     # written - Archipelago's own logic decides what's reachable. Only when a
@@ -2425,8 +2427,8 @@ def cmd_hybrid_patch(iso, ref_iso, ffcc_file):
         if placement_json is None:
             sys.exit(f"No .ffcc entry found inside {ffcc_file}")
     except _zipfile.BadZipFile:
-        # The user selected the raw .ffcc JSON file rather than the .zip wrapper —
-        # both are valid and carry identical placement data; read it directly.
+        # A raw .ffcc JSON file rather than the .zip wrapper - both are valid
+        # and carry identical placement data; read it directly.
         try:
             with open(ffcc_file, "r", encoding="utf-8") as fh:
                 placement_json = json.load(fh)
@@ -2460,7 +2462,12 @@ def cmd_hybrid_patch(iso, ref_iso, ffcc_file):
             # resolution needed and guaranteed to match the in-game ID exactly.
             raw_id = loc_data.get("item_id")
             item_id = int(raw_id) if raw_id is not None else None
-            if item_id is not None and (is_item(item_id) or item_id in stage_key_ids):
+            # "in_chest" (newer AP worlds) says whether the item goes in the chest
+            # itself; artifacts don't, since the game only keeps the one artifact
+            # picked as the dungeon reward. Older files: every own item with an ID.
+            in_chest = loc_data.get("in_chest",
+                                    item_id is not None and (is_item(item_id) or item_id in stage_key_ids))
+            if in_chest and item_id is not None:
                 chest_items[(dungeon, cycle, chest_no)] = item_id
                 real_count += 1
             else:
@@ -2490,7 +2497,7 @@ def cmd_hybrid_patch(iso, ref_iso, ffcc_file):
         ("goblin_wall_year_one", patch_goblin_wall_always_visible, "Goblin Wall in Year 1"),
         ("trap_visuals",         patch_trap_visuals,               "Trap visuals"),
     ]
-    if settings.get("randomize_miasma_streams"):
+    if settings.get("randomize_miasma_streams") or settings.get("shuffle_loading_zones"):
         settings = dict(settings, goblin_wall_year_one=True)   # the logic assumes it
     for key, patch, label in tweaks:
         if settings.get(key):

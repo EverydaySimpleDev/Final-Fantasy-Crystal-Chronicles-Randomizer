@@ -44,7 +44,7 @@ in-game.
 ## Finding empty slots
 
 `customitem.py list-free` only catches slots literally named `"Extra N"`.
-There's a SECOND, larger batch of empty slots it doesn't list: IDs whose
+There's a second, larger batch of empty slots it doesn't list: IDs whose
 name is still the auto-generated `"equipment NNN"` placeholder, `type=0`,
 `model=0`, `gil=0xFFFF` - confirmed via `customitem.py show <id>`. In the
 Artifact ID range specifically, **`0xE8`-`0xFE` (23 IDs) are empty this
@@ -91,18 +91,18 @@ that read them - not reachable through data edits alone.
 
 Setting a custom artifact's `model` field only changes two things: its
 dropped/ground-pickup mesh, and its post-stage reward-tally 3D preview.
-**It never makes the artifact appear on your character.** Confirmed
-directly in the decomp: `CGObject` has exactly three model-handle members
+**It never makes the artifact appear on your character.** Per the
+decomp, `CGObject` has exactly three model-handle members
 (character body, weapon, shield) and no others - armor/tribal/accessory/
 artifact equips are stat-only and never call any model-load/attach
 function. This matches vanilla behavior (a real Ribbon or Wonder Bangle
 isn't visible on the Clavat either), so it's not a modding limitation -
 only weapon and shield ever render on the character.
 
-## Worked example (byte-exact, verified 2026-09-14)
+## Worked example (byte-exact)
 
 New artifact "HP Charm" (+50 HP instead of Earth Pendant's own +2),
-cloned into empty slot `0xE8`, in the retail NTSC-US ISO used all session
+cloned into empty slot `0xE8`, in the retail NTSC-US ISO
 (`main.dol` at file offset `0x1ec00`):
 
 **1. `param.cfd` record for `0xE8`** - absolute ISO offset `0x29d0e0f0` (72 bytes)
@@ -135,7 +135,7 @@ them (model ids 113-121), grouped by stat-family rather than flavor - e.g.
 Ribbon and Dark Matter share one mesh despite being unrelated items. `--like`
 inherits the donor's mesh, so a straight clone repeats one of those same 9.
 
-Checked directly against the ISO (verified 2026-09-14, not just theory):
+Checked directly against the ISO:
 `dvd/char/fa/` holds 129 numbered meshes (`f001`-`f138`, this is the
 kind=3 "ground pickup / reward-screen" namespace - confirmed via Copper
 Sword -> `f001`, and crafting-material Gold -> `f055` matching the already

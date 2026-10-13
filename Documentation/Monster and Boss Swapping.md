@@ -66,8 +66,8 @@ are indexed by monster ID:
 | 127 | Lich | m062 | 0 |
 
 The model number is **not** the monster ID: folder `m045` has nothing to do
-with Goblin (Spear), ID 45. A monster-name table for the IDs is in
-`Monster Addresses.md` (in the parent modding folder).
+with Goblin (Spear), ID 45. The full ID-to-name table is `MONSTER_NAMES`
+in `spawn_map.py`.
 
 ### `ParamSet`: the per-stage monster table
 

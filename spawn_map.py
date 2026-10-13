@@ -9,12 +9,12 @@ from `SPAWN_TBOX` (0x196). Each dungeon spans multiple area files
 Record layouts (fields after monster_id/const, see cft.py's disasm()):
   SPAWN:      [monster_id, field1(0/1), C, D, x, y, z, rotation, 0, 0x40000004, E, 0, 0]
   SPAWN_TBOX: [127, A, 0, B, x, y, z, rotation]
-`A` (chests) and `E` (monsters) are both CONFIRMED get_treasure indices -
-swapping either between two records swaps what they drop (each index has 4
-item slots, matching PutDropItem's m_dropItemCodes[4]). `C`/`D`/`B` are not
-yet fully understood - see the research docs in Documentation/ for the
-latest findings; this module reports them as raw fields rather than
-guessing at a meaning.
+`A` (chests) and `E` (monsters) are both get_treasure indices - swapping
+either between two records swaps what they drop (confirmed in game; each
+index has 4 item slots, matching PutDropItem's m_dropItemCodes[4]). `B` is
+the chest-opened flag + 1 (see chestflags.py). `C` and `D` are not fully
+understood (see Documentation/); this module reports them as raw fields
+rather than guessing at a meaning.
 
 Each record also gets an `entry` number: its position in that area file's
 SPAWN_MONSTER, counted separately for monsters and chests. Area file + entry
@@ -48,8 +48,8 @@ DEFAULT_CFT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..",
 
 RECORD_LEN = {"SPAWN": 13, "SPAWN_TBOX": 8}
 
-# Monster ID -> name, from the team's own in-game ID-sweep research
-# (Monster Addresses.md). Some entries are unconfirmed/commentary as noted.
+# Monster ID -> name, from an in-game ID sweep.
+# Some entries are unconfirmed/commentary as noted.
 MONSTER_NAMES = {
     0x00: "None?",
     0x01: "Flan",
@@ -279,8 +279,8 @@ def _records(path, ordinal):
 
 def monsters(path):
     """[{addr, monster_id, name, field1, C, D, x, y, z, rotation, E}, ...]
-    E is the CONFIRMED get_treasure index for this monster's drop (swapping E
-    between two records swaps their drops - user-verified in-game)."""
+    E is the get_treasure index for this monster's drop (swapping E between
+    two records swaps their drops - confirmed in game)."""
     out = []
     for entry, (addr, r, w) in enumerate(_records(path, "SPAWN")):
         out.append({
@@ -299,9 +299,9 @@ def monsters(path):
 
 
 def chests(path):
-    """[{addr, A, B, x, y, z, rotation}, ...] - A is the CONFIRMED
-    get_treasure index (user-verified: swapping A between two chests swaps
-    their contents). B's meaning is still unresolved (see module docstring)."""
+    """[{addr, A, B, x, y, z, rotation}, ...] - A is the get_treasure index
+    (swapping A between two chests swaps their contents - confirmed in game).
+    B is the chest-opened flag + 1 (see module docstring)."""
     out = []
     for entry, (addr, r, w) in enumerate(_records(path, "SPAWN_TBOX")):
         out.append({
