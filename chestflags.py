@@ -157,6 +157,93 @@ def canonical(iso, script, discs):
     return chests
 
 
+ARTIFACT_IDS = range(0x9F, 0xE8)   # artifacts and Spell Rings
+
+
+def _monster_drop_pushes(path):
+    """[(file offset of E's PUSHI, E)] for every SPAWN (monster) record. E's
+    low 16 bits pick the get_treasure case; its top 4 bits (if set) mark the
+    monster as a door-key carrier and are left alone."""
+    root, _ = cft.parse(path)
+    func = next((s for s in root.subtags if s.type == b"FUNC"), None)
+    if func is None:
+        return []
+    names = [k.name() for k in func.subtags]
+    if "SPAWN_MONSTER" not in names or "SPAWN" not in names:
+        return []
+    block = func.subtags[names.index("SPAWN_MONSTER")]
+    abs0 = cft.code_abs_offset(path, block)
+    target = names.index("SPAWN")
+    out, pushes = [], []
+    for off, op, arg in cft.disasm(cft._code_of(block)):
+        if op in (0, 1, 2, 3, 4, 5):
+            pushes.append((off, op, arg))
+        elif op == 0x0a:
+            if (arg & 0xFFFF) == target and len(pushes) >= 13:
+                e_off, e_op, e_arg = pushes[-13:][10]
+                if e_op == 3:
+                    out.append((abs0 + e_off, e_arg))
+            pushes = []
+    return out
+
+
+def separate_monster_drops(path, buf):
+    """Point monsters away from loot that belongs to chests.
+
+    Monsters (SPAWN's E) and chests (SPAWN_TBOX's A) pick from the same
+    get_treasure cases, so a monster sharing a chest's case drops whatever is
+    written into that chest, and some monster-only cases roll artifacts. Each
+    monster whose case is a chest case, or rolls an artifact in a cycle slot
+    (0/2/4, see treasure.CYCLE_SLOT), is moved to another monster-only case in
+    the same file with no artifacts in those slots - one with the same kind of
+    loot (gil-only or not) if there is one, preferring the case most monsters
+    already use. `path` is the vanilla area file (read for the analysis),
+    `buf` its bytes to edit in place. Returns [(old E, new E)]."""
+    import collections
+    import struct
+    import treasure
+
+    ranges = _case_ranges(path)
+    if not ranges:
+        return []
+    data = open(path, "rb").read()
+    drops = _monster_drop_pushes(path)
+    chest_cases = {c["A"] & 0xFFFF for c in spawn_map.chests(path)}
+
+    def values(case):
+        """Drops in the cycle slots (0/2/4) - the only ones rolled in AP seeds."""
+        sl = treasure.slot_drops(data, *ranges[case])
+        return [d for s in treasure.CYCLE_SLOT.values() for d in sl.get(s, [])]
+
+    def gil_only(case):
+        vals = values(case)
+        return bool(vals) and all(kind == "gil" for kind, _ in vals)
+
+    def has_artifact(case):
+        return any(kind == "item" and v in ARTIFACT_IDS for kind, v in values(case))
+
+    uses = collections.Counter(e & 0xFFFF for _, e in drops)
+    safe = [c for c in ranges if c not in chest_cases and c in uses
+            and not has_artifact(c) and values(c)]
+    safe.sort(key=lambda c: (-uses[c], c))
+
+    changes = []
+    for off, e in drops:
+        case = e & 0xFFFF
+        if case not in ranges or (case not in chest_cases and not has_artifact(case)):
+            continue
+        same_kind = [c for c in safe if gil_only(c) == gil_only(case)]
+        pick = (same_kind or safe or [None])[0]
+        if pick is None:
+            continue
+        if buf[off] != 3 or struct.unpack(">i", bytes(buf[off + 1:off + 5]))[0] != e:
+            raise ValueError(f"{path}: unexpected bytes at monster drop 0x{off:x}")
+        new = (e & ~0xFFFF) | pick
+        buf[off + 1:off + 5] = struct.pack(">i", new)
+        changes.append((e, new))
+    return changes
+
+
 def dungeon_discs(iso, script):
     import gciso
     with open(iso, "rb") as f:

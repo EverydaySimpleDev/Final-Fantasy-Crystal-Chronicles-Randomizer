@@ -70,6 +70,38 @@ def case_slots(data, lo, hi):
     return slots
 
 
+def slot_drops(data, lo, hi):
+    """{slot: [("gil", amount) | ("item", item ID), ...]} - what each slot of
+    the case at data[lo:hi] gives, one entry per non-empty var2..var5. Gil is
+    0x4000 | amount (the amount may be scaled by the player count; the
+    single-player value is reported)."""
+    body = data[lo:hi]
+    heads = [(m.group(1)[0], m.start()) for m in INNER.finditer(body)][1:]
+    out = {}
+    for i, (slot, start) in enumerate(heads):
+        end = heads[i + 1][1] if i + 1 < len(heads) else len(body)
+        ops = list(cft.disasm(body[start:end]))
+        drops = []
+        for j, (off, op, arg) in enumerate(ops):
+            if op != 1 or arg is None or (arg & 0xFF) != 0x04 or (arg >> 8) not in (2, 3, 4, 5):
+                continue
+            lits = []
+            for off2, op2, arg2 in ops[j + 1:]:
+                if op2 == 0x0D:
+                    break
+                if op2 == 3:
+                    lits.append(arg2)
+            if not lits or not any(lits):
+                continue
+            if lits[0] & 0x4000:
+                amount = lits[0] & 0x3FFF or next((v for v in lits[1:] if v), 0)
+                drops.append(("gil", amount))
+            elif len(lits) == 1:
+                drops.append(("item", lits[0]))
+        out[slot] = drops
+    return out
+
+
 def write_slot(buf, info, item_id):
     """Make a slot drop only `item_id`: var3 = item, every other entry 0."""
     buf[info["item"]:info["item"] + 4] = struct.pack(">i", item_id)

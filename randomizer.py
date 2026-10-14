@@ -2399,6 +2399,51 @@ def apply_bosses(iso, boss_plan, spoiler=None):
     return True
 
 
+# Version of the Archipelago world (worlds/ffcc VERSION) this randomizer is made
+# for. Seeds record the version that generated them; the AP patch warns when
+# they differ, since options and item placement rules change between versions.
+AP_WORLD_VERSION = (0, 1, 1)
+
+
+def load_ffcc(path):
+    """Read a seed's .ffcc placement data, from the .ffcc file itself or from
+    the .zip it comes in. Raises ValueError if it can't be read."""
+    import json, zipfile as _zipfile
+    try:
+        with _zipfile.ZipFile(path) as zf:
+            name = next((n for n in zf.namelist() if n.endswith(".ffcc")), None)
+            if name is None:
+                raise ValueError(f"No .ffcc entry found inside {path}")
+            return json.loads(zf.read(name))
+    except _zipfile.BadZipFile:
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                return json.load(fh)
+        except Exception as e:
+            raise ValueError(f"Could not read {path} as ZIP or JSON: {e}")
+    except OSError as e:
+        raise ValueError(f"Could not open {path}: {e}")
+
+
+def _version_text(v):
+    return ".".join(str(x) for x in v)
+
+
+def ap_world_version_problem(placement_json):
+    """None if the seed was made with the AP world version this randomizer is
+    for, else a message saying what to update."""
+    seed = tuple(placement_json.get("version") or ())
+    want = AP_WORLD_VERSION
+    if seed == want:
+        return None
+    if not seed or seed < want:
+        return (f"This seed was made with an older FFCC apworld ({_version_text(seed) or 'unknown'}); "
+                f"this randomizer is for apworld {_version_text(want)}. Install the newest "
+                f"apworld and generate the seed again, or some fixes won't apply.")
+    return (f"This seed was made with a newer FFCC apworld ({_version_text(seed)}) than this "
+            f"randomizer supports ({_version_text(want)}). Download the newest randomizer.")
+
+
 def cmd_hybrid_patch(iso, ref_iso, ffcc_file):
     """Hybrid AP patch: own-player chests get the real item; others get AP Item.
 
@@ -2410,34 +2455,18 @@ def cmd_hybrid_patch(iso, ref_iso, ffcc_file):
     Usage:
         py randomizer.py ap-hybrid "Hacked Rom.iso" --ref "Vanilla.iso" --ffcc "seed.ffcc"
     """
-    import json, zipfile as _zipfile
-
     AP_ITEM_ID = 0x162
 
     # ── 1. Read placement from .ffcc file ──────────────────────────────────────
     # Accepts either a raw .ffcc JSON file (the one sitting in the output folder)
     # or the .zip container that wraps it — both contain the same placement data.
-    placement_json = None
     try:
-        with _zipfile.ZipFile(ffcc_file) as zf:
-            for name in zf.namelist():
-                if name.endswith(".ffcc"):
-                    placement_json = json.loads(zf.read(name))
-                    break
-        if placement_json is None:
-            sys.exit(f"No .ffcc entry found inside {ffcc_file}")
-    except _zipfile.BadZipFile:
-        # A raw .ffcc JSON file rather than the .zip wrapper - both are valid
-        # and carry identical placement data; read it directly.
-        try:
-            with open(ffcc_file, "r", encoding="utf-8") as fh:
-                placement_json = json.load(fh)
-            print(f"Note: reading {os.path.basename(ffcc_file)} as plain JSON "
-                  f"(not a ZIP — both formats are accepted).")
-        except Exception as e2:
-            sys.exit(f"Could not read {ffcc_file} as ZIP or JSON: {e2}")
-    except Exception as e:
-        sys.exit(f"Could not open {ffcc_file}: {e}")
+        placement_json = load_ffcc(ffcc_file)
+    except ValueError as e:
+        sys.exit(str(e))
+    problem = ap_world_version_problem(placement_json)
+    if problem:
+        print("WARNING: " + problem)
 
     self_player = placement_json.get("player", "")
     raw_locs    = placement_json.get("locations", {})
@@ -2535,7 +2564,10 @@ def cmd_hybrid_patch(iso, ref_iso, ffcc_file):
     # windows overlap (cycle 1 = slots 0-3, 2 = 2-5, 3 = 4-7), so getIdxSet is
     # patched to always use slot 0 / 2 / 4, and each location's item goes in
     # exactly that slot. Gil-only chests work the same way: their gil is
-    # cleared when the item goes in. See treasure.py and chestflags.py.
+    # cleared when the item goes in. Monsters that share a chest's loot case,
+    # or whose own case rolls an artifact, are first moved to plain monster
+    # loot (chestflags.separate_monster_drops), so a dungeon's artifacts and
+    # AP items only come from its chests. See treasure.py and chestflags.py.
     import chestflags, treasure
     found = dungeons_in_iso(iso)
     total_slots = 0
@@ -2548,6 +2580,9 @@ def cmd_hybrid_patch(iso, ref_iso, ffcc_file):
             size = _extract(iso, disc, tmp)
             buf  = bytearray(open(tmp, "rb").read())
             treasure.patch_getidxset(buf, tmp)
+            moved = chestflags.separate_monster_drops(tmp, buf)
+            if moved:
+                print(f"  {script:8s} a{area}: {len(moved)} monster drop(s) moved off chest/artifact loot")
             ranges = chestflags._case_ranges(tmp)
             written = 0
             for c in chests:

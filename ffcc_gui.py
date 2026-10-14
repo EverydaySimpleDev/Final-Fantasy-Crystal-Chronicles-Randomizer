@@ -1373,7 +1373,17 @@ class APPatchTab(ttk.Frame):
     def _update_mode_label(self, *_):
         f = self.ffcc.get().strip()
         if f and os.path.isfile(f):
-            self._mode_lbl.config(text="  Seed file found", foreground="#0a0")
+            try:
+                problem = rnd.ap_world_version_problem(rnd.load_ffcc(f))
+            except ValueError:
+                self._mode_lbl.config(text="  Not a readable seed file", foreground="#a33")
+                return
+            if problem:
+                self._mode_lbl.config(text="  Seed file found - apworld version mismatch (see Patch)",
+                                      foreground="#a60")
+            else:
+                self._mode_lbl.config(text="  Seed file found (apworld "
+                                      f"{'.'.join(map(str, rnd.AP_WORLD_VERSION))})", foreground="#0a0")
         elif f:
             self._mode_lbl.config(text="  Seed file not found", foreground="#a60")
         else:
@@ -1475,6 +1485,13 @@ class APPatchTab(ttk.Frame):
             return
         if not os.path.isfile(ffcc):
             messagebox.showerror("Seed file not found", f"The seed file was not found:\n{ffcc}")
+            return
+        try:
+            problem = rnd.ap_world_version_problem(rnd.load_ffcc(ffcc))
+        except ValueError as e:
+            messagebox.showerror("Can't read seed file", str(e))
+            return
+        if problem and not messagebox.askyesno("Apworld version", problem + "\n\nPatch anyway?"):
             return
 
         if (os.path.isfile(out) and
