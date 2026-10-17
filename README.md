@@ -391,6 +391,8 @@ py cftpatch.py transplant|group|roundtrip <file.cft> ...     # move monsters/bos
 py spawn_map.py table <file.cft>                             # coordinate-indexed monster/chest table for one file
 py spawn_map.py export <cft_dir> <out.json>                  # same, dumped for every dungeon at once
 py spawn_map.py blender <file.cft> <out.py> [--axes x,-z,y]   # Blender script labelling every monster/chest (entry, drop, cycles)
+py stagemap.py render <iso> <script> <area> <out.png>        # top-down map of one dungeon area from its stage geometry, chests marked
+py stagemap.py tracker <iso> <out_dir>                       # every dungeon's map + chest pixel positions (stagemaps.json) for the tracker pack
 ```
 
 ---

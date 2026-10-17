@@ -46,7 +46,7 @@ import lootcft
 
 DEFAULT_CFT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "dungeon_cfts", "dvd", "cft")
 
-RECORD_LEN = {"SPAWN": 13, "SPAWN_TBOX": 8}
+RECORD_LEN = {"SPAWN": 13, "SPAWN_TBOX": 8, "SPAWN_HOT_SPOT": 11}
 
 # Monster ID -> name, from an in-game ID sweep.
 # Some entries are unconfirmed/commentary as noted.

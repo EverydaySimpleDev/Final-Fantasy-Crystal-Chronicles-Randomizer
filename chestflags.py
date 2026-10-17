@@ -86,7 +86,14 @@ CYCLE_BITS = {1: 0x10, 2: 0x20, 3: 0x40}   # SPAWN_TBOX first field
 # Chests that can't be reached in some cycles (found by in-game testing)
 # even though their loot isn't empty there: {dungeon script: {chest: [cycles]}}.
 UNREACHABLE = {
-    "gob": {2: [1], 3: [1], 13: [1]},     # Game8 chests 2, 1 and 10: can't be reached in cycle 1
+    "gob": {9: [1], 10: [1]},     # the upper-left ledge of area 2
+    "water": {5: [1], 12: [1]},   # under water until it drops in year 5
+}
+
+# Chests that can be reached in a cycle whose vanilla loot slot is empty (found
+# by in-game testing); the patcher fills that slot like any other.
+REACHABLE = {
+    "kinoko": {6: [2]},
 }
 
 
@@ -100,16 +107,20 @@ def _slot_has_loot(data, info):
 
 
 def canonical(iso, script, discs):
-    """The dungeon's chests in the game's own order, one per (area, loot
-    case): chests in the same area that share a loot case always give the
-    same item (and include alternative spots for one chest), so they're one
-    location whose flags all count. Returns a list of dicts:
-        chest   1..K, in order of each chest's lowest flag
-        area    area file number;  case = get_treasure case (A);  set = loot set index
+    """The dungeon's chests in the game's own order. Records that share a
+    chest-opened flag are one chest (the same chest at alternative spots).
+    Separate chests that share a loot case in vanilla always gave the same
+    item; _area_split() moves all but one of them to a loot case of their own,
+    so each is its own location. Returns a list of dicts:
+        chest   1..K for the vanilla chests, in order of each chest's lowest
+                flag; chests split off a shared case come after, as K+1...
+        area    area file number;  case = get_treasure case (A) the chest uses
+                after the split;  set = loot set index of its vanilla case
         flags   chest-opened flag numbers (B - 1)
         cycles  cycles the chest is a location in: it spawns (record cycle
                 bits) AND its vanilla loot in that cycle's slot (0/2/4, the
-                one AP seeds use) isn't empty, minus the UNREACHABLE list. Chests a player can't reach in
+                one AP seeds use) isn't empty, plus the REACHABLE list and
+                minus the UNREACHABLE list. Chests a player can't reach in
                 a cycle are left empty there in vanilla; this matches the
                 Game8 per-cycle chest counts exactly for 10 of 14 dungeons and
                 only ever under-counts elsewhere, except Veo Lu Sluice cycle 1
@@ -118,8 +129,11 @@ def canonical(iso, script, discs):
                 chest, gil-only ones included, since gil can be cleared
         gil     True for chests that give only gil in vanilla
         world   position of the first record
+        retarget  [(file offset, new A)] - the SPAWN_TBOX edits that move a
+                split-off chest to its own case (empty for the others)
     """
     import randomizer
+    import treasure
     groups = {}
     for disc in discs:
         tmp = os.path.join(tempfile.gettempdir(), "cf_" + os.path.basename(disc))
@@ -132,27 +146,38 @@ def canonical(iso, script, discs):
             for cid, (lo, hi) in ranges.items():
                 if lo <= s[0][0] < hi:
                     set_of_case[cid] = si
+        raw = open(tmp, "rb").read()
+        split = _area_split(tmp)
+        records = {off: (mask, a, flag) for off, mask, a, flag in _chest_case_pushes(tmp)}
         for addr, r, w in spawn_map._records(tmp, "SPAWN_TBOX"):
-            mask, case, extra, flag = r[0], r[1] & 0xFFFF, r[1] >> 16, r[3] - 1
+            mask, vanilla_case, extra, flag = r[0], r[1] & 0xFFFF, r[1] >> 16, r[3] - 1
+            case = split.get(flag, vanilla_case)
             g = groups.setdefault((area, case), {
-                "area": area, "case": case, "extra": extra, "set": set_of_case.get(case),
-                "flags": [], "cycles": set(), "world": tuple(w[4:7])})
+                "area": area, "case": case, "extra": extra, "set": set_of_case.get(vanilla_case),
+                "flags": [], "cycles": set(), "world": tuple(w[4:7]),
+                "split": flag in split, "retarget": []})
             if flag not in g["flags"]:
                 g["flags"].append(flag)
-            import treasure
-            lo, hi = ranges[case]
-            raw = open(tmp, "rb").read()
-            sl = treasure.case_slots(raw, lo, hi)
+            if flag in split:
+                g["retarget"] = [(off, (a & ~0xFFFF) | case)
+                                 for off, (m, a, f) in records.items() if f == flag]
             if "items" not in g:
+                sl = treasure.case_slots(raw, *ranges[case])
                 g["items"] = all(sl.get(s, {}).get("item") for s in treasure.CYCLE_SLOT.values())
+            # cycles follow the vanilla loot (an empty vanilla slot means the
+            # chest isn't meant to be found in that cycle)
+            vanilla = treasure.case_slots(raw, *ranges[vanilla_case])
             g["cycles"] |= {c for c, bit in CYCLE_BITS.items()
-                            if mask & bit and _slot_has_loot(raw, sl.get(treasure.CYCLE_SLOT[c]))}
-    chests = sorted(groups.values(), key=lambda g: min(g["flags"]))
+                            if mask & bit and _slot_has_loot(raw, vanilla.get(treasure.CYCLE_SLOT[c]))}
+    vanilla_chests = sorted((g for g in groups.values() if not g["split"]), key=lambda g: min(g["flags"]))
+    split_chests = sorted((g for g in groups.values() if g["split"]), key=lambda g: (g["area"], min(g["flags"])))
+    chests = vanilla_chests + split_chests
     blocked = UNREACHABLE.get(script, {})
+    extra = REACHABLE.get(script, {})
     for n, g in enumerate(chests, 1):
         g["chest"] = n
         g["flags"].sort()
-        g["cycles"] = sorted(set(g["cycles"]) - set(blocked.get(n, [])))
+        g["cycles"] = sorted((set(g["cycles"]) | set(extra.get(n, []))) - set(blocked.get(n, [])))
         g["gil"] = g["set"] is None
     return chests
 
@@ -160,34 +185,93 @@ def canonical(iso, script, discs):
 ARTIFACT_IDS = range(0x9F, 0xE8)   # artifacts and Spell Rings
 
 
-def _monster_drop_pushes(path):
-    """[(file offset of E's PUSHI, E)] for every SPAWN (monster) record. E's
-    low 16 bits pick the get_treasure case; its top 4 bits (if set) mark the
-    monster as a door-key carrier and are left alone."""
+def _spawn_calls(path, func_name, nargs):
+    """The argument pushes of every `func_name` call in the SPAWN_MONSTER
+    block: [[(file offset, opcode, value) per argument], ...]."""
     root, _ = cft.parse(path)
     func = next((s for s in root.subtags if s.type == b"FUNC"), None)
     if func is None:
         return []
     names = [k.name() for k in func.subtags]
-    if "SPAWN_MONSTER" not in names or "SPAWN" not in names:
+    if "SPAWN_MONSTER" not in names or func_name not in names:
         return []
     block = func.subtags[names.index("SPAWN_MONSTER")]
     abs0 = cft.code_abs_offset(path, block)
-    target = names.index("SPAWN")
+    target = names.index(func_name)
     out, pushes = [], []
     for off, op, arg in cft.disasm(cft._code_of(block)):
         if op in (0, 1, 2, 3, 4, 5):
-            pushes.append((off, op, arg))
+            pushes.append((abs0 + off, op, arg))
         elif op == 0x0a:
-            if (arg & 0xFFFF) == target and len(pushes) >= 13:
-                e_off, e_op, e_arg = pushes[-13:][10]
-                if e_op == 3:
-                    out.append((abs0 + e_off, e_arg))
+            if (arg & 0xFFFF) == target and len(pushes) >= nargs:
+                out.append(pushes[-nargs:])
             pushes = []
     return out
 
 
-def separate_monster_drops(path, buf):
+def _monster_drop_pushes(path):
+    """[(file offset of E's PUSHI, E)] for every SPAWN (monster) record. E's
+    low 16 bits pick the get_treasure case; its top 4 bits (if set) mark the
+    monster as a door-key carrier and are left alone."""
+    return [(args[10][0], args[10][2]) for args in _spawn_calls(path, "SPAWN", 13) if args[10][1] == 3]
+
+
+def _chest_case_pushes(path):
+    """[(file offset of A's PUSHI, mask, A, flag)] for every SPAWN_TBOX
+    (chest) record [mask, A, 0, B, x, y, z, rot]; flag = B - 1."""
+    return [(args[1][0], args[0][2], args[1][2], args[3][2] - 1)
+            for args in _spawn_calls(path, "SPAWN_TBOX", 8) if args[1][1] == 3]
+
+
+def _sphere_cases(path):
+    """get_treasure cases used by SPAWN_SWITCH_SPHERE records (second argument)."""
+    return {args[1][2] & 0xFFFF for args in _spawn_calls(path, "SPAWN_SWITCH_SPHERE", 9)}
+
+
+def _area_split(path):
+    """{flag: new case} for the chests of one area file that share a loot case
+    with another chest. The chest with the lowest flag keeps the vanilla case;
+    each other one gets a case of its own: first one nobody uses, then one only
+    monsters use (separate_monster_drops() moves those monsters away, since
+    the case now belongs to a chest). Only cases whose cycle slots (0/2/4) can
+    hold an item are used. Chests left over when no case is free stay shared."""
+    import collections
+    import treasure
+
+    ranges = _case_ranges(path)
+    if not ranges:
+        return {}
+    data = open(path, "rb").read()
+    flags_of = collections.defaultdict(set)
+    for _, mask, a, flag in _chest_case_pushes(path):
+        flags_of[a & 0xFFFF].add(flag)
+    chest_cases = set(flags_of)
+    monster_uses = collections.Counter(e & 0xFFFF for _, e in _monster_drop_pushes(path))
+    spheres = _sphere_cases(path)
+
+    def writable(case):
+        sl = treasure.case_slots(data, *ranges[case])
+        return all(sl.get(s, {}).get("item") for s in treasure.CYCLE_SLOT.values())
+
+    free = sorted(c for c in ranges if c not in chest_cases and c not in monster_uses
+                  and c not in spheres and writable(c))
+    free += sorted((c for c in monster_uses if c in ranges and c not in chest_cases
+                    and c not in spheres and writable(c)), key=lambda c: (monster_uses[c], c))
+    split = {}
+    for case in sorted(flags_of):
+        for flag in sorted(flags_of[case])[1:]:
+            if not free:
+                return split
+            split[flag] = free.pop(0)
+    return split
+
+
+def split_chest_cases(path):
+    """Cases that chests use after _area_split() - for separate_monster_drops()."""
+    return set(_area_split(path).values())
+
+
+def separate_monster_drops(path, buf, extra_chest_cases=()):
     """Point monsters away from loot that belongs to chests.
 
     Monsters (SPAWN's E) and chests (SPAWN_TBOX's A) pick from the same
@@ -198,7 +282,8 @@ def separate_monster_drops(path, buf):
     the same file with no artifacts in those slots - one with the same kind of
     loot (gil-only or not) if there is one, preferring the case most monsters
     already use. `path` is the vanilla area file (read for the analysis),
-    `buf` its bytes to edit in place. Returns [(old E, new E)]."""
+    `buf` its bytes to edit in place; `extra_chest_cases` are cases that
+    chests use after a split (see _area_split). Returns [(old E, new E)]."""
     import collections
     import struct
     import treasure
@@ -208,7 +293,7 @@ def separate_monster_drops(path, buf):
         return []
     data = open(path, "rb").read()
     drops = _monster_drop_pushes(path)
-    chest_cases = {c["A"] & 0xFFFF for c in spawn_map.chests(path)}
+    chest_cases = {c["A"] & 0xFFFF for c in spawn_map.chests(path)} | set(extra_chest_cases)
 
     def values(case):
         """Drops in the cycle slots (0/2/4) - the only ones rolled in AP seeds."""
@@ -267,8 +352,9 @@ def export(iso, out_path):
              "game files - regenerate instead of editing by hand.",
              "",
              "Chests are numbered in the game's own order (1..K per dungeon, by each",
-             "chest's lowest flag). Chests in the same area that share a loot case are one",
-             "chest (they always give the same item; several flags may then count).",
+             "chest's lowest flag). Separate chests that shared a loot case in vanilla",
+             "are given their own case by the patcher and numbered after those (K+1...).",
+             "Several flags on one chest are the same chest at alternative spots.",
              "",
              "CHESTS[dungeon] = [(chest, cycles, flags), ...]",
              "    flag n = bit n of the big-endian u32 chest-flag words at 0x80926000:",

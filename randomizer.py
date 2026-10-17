@@ -2402,7 +2402,7 @@ def apply_bosses(iso, boss_plan, spoiler=None):
 # Version of the Archipelago world (worlds/ffcc VERSION) this randomizer is made
 # for. Seeds record the version that generated them; the AP patch warns when
 # they differ, since options and item placement rules change between versions.
-AP_WORLD_VERSION = (0, 1, 1)
+AP_WORLD_VERSION = (0, 1, 4)
 
 
 def load_ffcc(path):
@@ -2580,7 +2580,20 @@ def cmd_hybrid_patch(iso, ref_iso, ffcc_file):
             size = _extract(iso, disc, tmp)
             buf  = bytearray(open(tmp, "rb").read())
             treasure.patch_getidxset(buf, tmp)
-            moved = chestflags.separate_monster_drops(tmp, buf)
+            # Chests that shared a loot case with another chest get a case of
+            # their own (chestflags._area_split), so each is its own location.
+            split = 0
+            for c in chests:
+                if c["area"] != area:
+                    continue
+                for off, new_a in c["retarget"]:
+                    if buf[off] != 3:
+                        raise ValueError(f"{disc}: unexpected bytes at chest case 0x{off:x}")
+                    buf[off + 1:off + 5] = struct.pack(">i", new_a)
+                split += bool(c["retarget"])
+            if split:
+                print(f"  {script:8s} a{area}: {split} chest(s) given their own loot case")
+            moved = chestflags.separate_monster_drops(tmp, buf, chestflags.split_chest_cases(tmp))
             if moved:
                 print(f"  {script:8s} a{area}: {len(moved)} monster drop(s) moved off chest/artifact loot")
             ranges = chestflags._case_ranges(tmp)
@@ -2592,6 +2605,8 @@ def cmd_hybrid_patch(iso, ref_iso, ffcc_file):
                 slots = treasure.case_slots(buf, lo, hi)
                 for cycle, slot in treasure.CYCLE_SLOT.items():
                     if cycle not in c["cycles"]:
+                        if c["split"]:
+                            treasure.write_slot(buf, slots[slot], 0)   # not a location: empty
                         continue
                     item_id = chest_items.get((friendly, cycle, c["chest"]), AP_ITEM_ID)
                     treasure.write_slot(buf, slots[slot], item_id)
