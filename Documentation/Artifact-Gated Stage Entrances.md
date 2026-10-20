@@ -168,6 +168,69 @@ call-site offsets and stage ids.
 Note: the `mainBasha` call at `0x4E33A` (stage id 172, `thief_0`) is a Leuda
 stop, not Mount Kilanda - don't gate it as Kilanda.
 
+### Element menus stay open
+
+Stops with an element menu (`MJ_SWING_ATTRIB_1` for one element: the Mine,
+Mushroom Forest, Selepation Cave, Lynari Desert; `MJ_SWING_ATTRIB_2` for two:
+River Belle Path, Goblin Wall, Tida, Moschet Manor) let the player change the
+chalice's element or enter. In the game the menu only shows once the stage
+has been cleared (`if (evtFlag[this.m40])`, the stage's Myrrh flag 200+n),
+otherwise A goes straight in. If the key check guarded the whole stop, an
+element could only be had with that dungeon's key, and a player missing the
+right key could be stuck in front of a Miasma Stream for the year.
+
+So with stage keys the lock works differently at these stops:
+
+- Their `mainBasha` call stays the original `MJ_SWING_ATTRIB_1/2` call.
+- The "stage cleared?" `jz` in each menu jumps to the next instruction either
+  way, so the menu always shows (`MJ_SWING_ATTRIB_1` code `0x107`,
+  `MJ_SWING_ATTRIB_2` code `0x137`).
+- The menu's "enter" calls (`MJ_SWING_ATTRIB_1` `0x1C3`/`0x201`,
+  `MJ_SWING_ATTRIB_2` `0x227`/`0x265`) call the dispatcher instead of
+  `MJ_SWING_PADCHECK`. The dispatcher's case for that stage checks the key
+  and forwards to `MJ_SWING_PADCHECK`.
+- River Belle Path (stage id `0x89`) is never locked, so its case forwards
+  without a check. The stage id belongs to the dungeon, so this follows River
+  Belle Path to whatever stop it is shuffled onto.
+
+The menus pick their elements from the stop (`G61`), so with shuffled loading
+zones the elements stay with the world-map stop, not the dungeon.
+
+Tested in game (Selepation Cave, no key, never cleared): the menu shows, the
+element changes, entering is refused; with the key, entering works.
+
+### Boats to Mount Kilanda
+
+Mount Kilanda is reached by boat, and the boat trip is already decided when
+the world map's Kilanda lock turns the caravan away, so on its own the boat
+just sails back and forth. The boatmen therefore refuse the trip as well
+(`_patch_kilanda_boats()`). Each boatman talk (`mainEventClient` in the town
+script) checks whether the player declined, right after the destination and
+fare are set. That check now reads its value through a gate (the town's
+unused library helper `dropItem_fromNpc4`, function 427) that answers "no"
+for a Kilanda trip without the key. The boatman then just ends the talk: no
+fare, no trip.
+
+| Town | Script | Check (offset in `mainEventClient`) | Kilanda trip |
+|---|---|---|---|
+| Jegon River pier | `port_0` | `this.m23 != -1` at `0x19D3` | destination `this.m27 == 8` |
+| Port Tipa | `port_1` | `this.m23 != -1` at `0x23A3` | destination `this.m27 == 8` |
+| Leuda | `thief_0` | `this.m26 == -1` at `0x0FCE` | choice `this.m14 == 2`, or `0` while `eventWork[1] == 5` |
+
+When each boat offers Kilanda (the menu is picked from `eventWork[1]`, which
+`changeYear` sets: Year 2 → 1, 3 → 2, 4 → 4, 5-7 → 5 (river dry), 8+ → 6, and
+refilling the river at Veo Lu Sluice also sets 6):
+
+- Jegon River pier: from Year 4 (`eventWork[1]` 4 or 6). While the river is
+  dry the pier is `port_2`, which has no boat.
+- Port Tipa: only while the river is dry (`eventWork[1] == 5`).
+- Leuda: from Year 5.
+
+Tested in game at the Jegon River pier: the boatman refuses Mount Kilanda
+without the key, and with the key the trip goes through and the caravan
+enters Mount Kilanda (so the world-map lock passes too). Port Tipa and Leuda
+use the same gate but haven't been played yet.
+
 Limitations:
 
 - Real artifacts can only be obtained through the vanilla "find several

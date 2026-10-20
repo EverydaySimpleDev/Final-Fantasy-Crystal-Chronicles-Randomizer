@@ -93,7 +93,8 @@ UNREACHABLE = {
 # Chests that can be reached in a cycle whose vanilla loot slot is empty (found
 # by in-game testing); the patcher fills that slot like any other.
 REACHABLE = {
-    "kinoko": {6: [2]},
+    "kinoko": {6: [2], 8: [3]},
+    "lava": {2: [1], 7: [1, 2], 8: [1]},
 }
 
 

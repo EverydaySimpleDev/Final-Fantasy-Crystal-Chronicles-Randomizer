@@ -1683,6 +1683,24 @@ _STAGE_LOCK_SITES = [
     ("desert", 0x4E4B5, 173, 595),
 ]
 
+# World-map stops with an element menu (picking the chalice element there,
+# or entering). In the game the menu only appears once the stage has been
+# cleared; with stage keys it is always offered and needs no key, so the
+# element a stream asks for can always be picked up on the near side of it,
+# whatever keys the player has. Entering still needs the key: the menu's
+# "enter" calls go to the dispatcher instead of straight to
+# MJ_SWING_PADCHECK. Both menus pick the stop's elements from the stop
+# itself (G61), so they belong to the world-map stop, not the dungeon.
+_ENTER_FUNC = 593                         # MJ_SWING_PADCHECK
+_ELEMENT_MENU_FUNCS = (594, 595)          # MJ_SWING_ATTRIB_2 (two elements), MJ_SWING_ATTRIB_1 (one)
+_STAGE_LOCK_DISPATCHER = 598              # encountKaido
+_RIVER_STAGE_ID = 0x89                    # River Belle Path, never locked
+_ELEMENT_MENU_EDITS = {
+    # function: (code offset of the "stage cleared?" jz, its vanilla target, "enter" calls)
+    "MJ_SWING_ATTRIB_1": (0x107, 0x1d9, (0x1c3, 0x201)),
+    "MJ_SWING_ATTRIB_2": (0x137, 0x23d, (0x227, 0x265)),
+}
+
 # Earlier versions listed ("lava", 0x4E33A, 172, 593) above, but STR 172 is
 # thief_0: that call is a LEUDA stop, so Leuda ended up locked behind the
 # Kilanda Key and Kilanda stayed open. patch_stage_key_locks() puts this call
@@ -1719,10 +1737,11 @@ def _stage_lock_dispatcher_body(cases, check_func_idx=234):
     SITES`). `cases`: [(stage_id, item_id, forward_func_idx), ...]. For each,
     if local[0]==stage_id: check item_id via the native checkCaravanItem
     (func idx `check_func_idx`), forward all 8 original arguments to
-    forward_func_idx if owned, else silently deny. Falls through to a silent
-    deny if local[0] doesn't match any case (should never happen - every
-    redirected mainBasha call site pushes a stage id covered by exactly one
-    case here)."""
+    forward_func_idx if owned, else silently deny. An item_id of None
+    forwards without a check (River Belle Path, which is never locked). Falls
+    through to a silent deny if local[0] doesn't match any case (should never
+    happen - every call that reaches here pushes a stage id covered by
+    exactly one case)."""
     def op1(b):
         return bytes([b])
 
@@ -1737,22 +1756,25 @@ def _stage_lock_dispatcher_body(cases, check_func_idx=234):
         jz_next = len(prog)
         prog += op5(0x08, 0)                                   # JZ <next case> (patched below)
 
-        prog += op5(0x03, 0)                                   # PUSHI 0   caravanIndex
-        prog += op5(0x03, 2)                                   # PUSHI 2   flags
-        prog += op5(0x03, item_id)                             # PUSHI itemId
-        prog += op5(0x0a, (0xFFFF << 16) | check_func_idx)      # CALL checkCaravanItem
-        prog += op5(0x03, 2)
-        prog += op1(0x2c)
-        jz_deny = len(prog)
-        prog += op5(0x08, 0)                                   # JZ <deny> (patched below)
+        jz_deny = None
+        if item_id is not None:
+            prog += op5(0x03, 0)                               # PUSHI 0   caravanIndex
+            prog += op5(0x03, 2)                               # PUSHI 2   flags
+            prog += op5(0x03, item_id)                         # PUSHI itemId
+            prog += op5(0x0a, (0xFFFF << 16) | check_func_idx)  # CALL checkCaravanItem
+            prog += op5(0x03, 2)
+            prog += op1(0x2c)
+            jz_deny = len(prog)
+            prog += op5(0x08, 0)                               # JZ <deny> (patched below)
         for i in range(8):
             prog += op5(0x00, (i << 8) | 1)                    # GET local[i]
         prog += op5(0x0a, (0xFFFF << 16) | forward_func_idx)    # CALL <this dungeon's MJ_SWING variant>
         prog += op1(0x3c)                                      # RET
-        deny_off = len(prog)
-        prog += op1(0x3f)                                      # PUSH0
-        prog += op1(0x3c)                                      # RET
-        prog[jz_deny:jz_deny + 5] = op5(0x08, deny_off)
+        if jz_deny is not None:
+            deny_off = len(prog)
+            prog += op1(0x3f)                                  # PUSH0
+            prog += op1(0x3c)                                  # RET
+            prog[jz_deny:jz_deny + 5] = op5(0x08, deny_off)
 
         next_case_off = len(prog)
         prog[jz_next:jz_next + 5] = op5(0x08, next_case_off)
@@ -1836,6 +1858,110 @@ def _patch_kilanda_and_leuda(iso, apply=True):
     return "; ".join(notes)
 
 
+# Mount Kilanda by boat. Port Tipa (port_1), the Jegon River ferry (port_0)
+# and Leuda (thief_0) sail straight to Mount Kilanda. Without the key the
+# world-map lock above turns the caravan away at the dock and the boat sails
+# back and forth, so the boatman refuses the trip instead. In each boatman
+# talk (mainEventClient), right after the destination and fare are set, the
+# script checks whether the player said no (`this.m23 != -1`; at Leuda
+# `this.m26 == -1`). That check now reads its value through a gate that says
+# "no" (-1) for a Kilanda trip without the key, so the boatman just stops
+# talking: no fare, no trip. The gate is the town's unused library helper
+# dropItem_fromNpc4. Kilanda is destination 8 (this.m27) at both ports; at
+# Leuda it is choice 2, or choice 0 once the river is low (this.m14, with
+# eventWork[1] == 5).
+_KILANDA_BOAT_FUNC = 427
+_KILANDA_BOAT_FUNC_NAME = "dropItem_fromNpc4"
+_KILANDA_BOAT_FUNC_LEN = 162
+_KILANDA_BOATS = {
+    # town script: (offset of the check's "load this.mN" in mainEventClient, N)
+    "dvd/cft/port_1.cft": (0x23A3, 23),
+    "dvd/cft/port_0.cft": (0x19D3, 23),
+    "dvd/cft/thief_0.cft": (0x0FCE, 26),
+}
+
+
+def _kilanda_boat_gate(leuda, item_id, member, check_func_idx=234):
+    """Gate body (no arguments): this.m<member>, or -1 when the trip being
+    bought goes to Mount Kilanda and the caravan doesn't own `item_id`."""
+    def op5(b, arg):
+        return bytes([b]) + struct.pack(">I", arg & 0xffffffff)
+
+    def load_member(n):
+        return op5(0x00, (n << 8) | 0x19)                        # GET this.mN
+
+    prog = bytearray()
+    jumps_pass, jumps_check = [], []
+    if leuda:
+        prog += load_member(14) + op5(0x03, 2) + bytes([0x2c])   # choice == 2
+        jumps_check.append(len(prog)); prog += op5(0x09, 0)      # JNZ check
+        prog += load_member(14) + op5(0x03, 0) + bytes([0x2c])   # choice == 0
+        jumps_pass.append(len(prog)); prog += op5(0x08, 0)       # JZ pass
+        prog += op5(0x03, 1) + op5(0x00, 0xFFFE390A)             # eventWork[1]
+        prog += op5(0x03, 5) + bytes([0x2c])                     # == 5 (river low)
+        jumps_pass.append(len(prog)); prog += op5(0x08, 0)       # JZ pass
+    else:
+        prog += load_member(27) + op5(0x03, 8) + bytes([0x2c])   # destination == 8
+        jumps_pass.append(len(prog)); prog += op5(0x08, 0)       # JZ pass
+    check = len(prog)
+    prog += op5(0x03, 0) + op5(0x03, 2) + op5(0x03, item_id)     # caravanIndex, flags, itemId
+    prog += op5(0x0a, (0xFFFF << 16) | check_func_idx)            # CALL checkCaravanItem
+    prog += op5(0x03, 2) + bytes([0x2c])                         # == 2 (owned)
+    jz_deny = len(prog); prog += op5(0x08, 0)                    # JZ deny
+    jumps_pass.append(len(prog)); prog += op5(0x07, 0)           # JMP pass
+    deny = len(prog)
+    prog += op5(0x03, -1) + bytes([0x3c])                        # return -1 ("no")
+    passed = len(prog)
+    prog += load_member(member) + bytes([0x3c])                  # return the player's answer
+    for at in jumps_check:
+        prog[at:at + 5] = op5(0x09, check)
+    for at in jumps_pass:
+        prog[at:at + 5] = op5(prog[at], passed)
+    prog[jz_deny:jz_deny + 5] = op5(0x08, deny)
+    return bytes(prog)
+
+
+def _patch_kilanda_boats(iso, apply=True):
+    """Make the boatmen of Port Tipa, the Jegon River ferry and Leuda refuse
+    a trip to Mount Kilanda until its key is owned. Idempotent."""
+    import cftpatch
+    key = dict((sc, kid) for sc, kid, _ in STAGE_KEYS)["lava"]
+    call = bytes([0x0a]) + struct.pack(">I", (0xFFFF << 16) | _KILANDA_BOAT_FUNC)
+    for disc, (site, member) in _KILANDA_BOATS.items():
+        tmp = os.path.join(tempfile.gettempdir(), "kilanda_boat_" + os.path.basename(disc))
+        size = _extract(iso, disc, tmp)
+        s = cftpatch.Script(tmp)
+        if s.names[_KILANDA_BOAT_FUNC] != _KILANDA_BOAT_FUNC_NAME:
+            raise ValueError(f"{disc}: function table isn't the expected one - wrong game version?")
+        body = _kilanda_boat_gate(disc.endswith("thief_0.cft"), key, member)
+        gate = s.code(_KILANDA_BOAT_FUNC_NAME)
+        if gate[:len(body)] != body:
+            if len(gate) != _KILANDA_BOAT_FUNC_LEN:
+                raise ValueError(f"{disc}: {_KILANDA_BOAT_FUNC_NAME} has unexpected size {len(gate)}")
+            s.set_code(_KILANDA_BOAT_FUNC_NAME, body + b"\x3c" * (len(gate) - len(body)))
+            blk = s.funcs[_KILANDA_BOAT_FUNC]
+            info = blk.find(b"INFO")[0]
+            info.payload = struct.pack(">I", 0) + info.payload[4:]          # argCount = 0
+        code = bytearray(s.code("mainEventClient"))
+        orig = bytes([0x00]) + struct.pack(">I", (member << 8) | 0x19)    # GET this.mN
+        cur = bytes(code[site:site + 5])
+        if cur == orig:
+            code[site:site + 5] = call
+            s.set_code("mainEventClient", code)
+        elif cur != call:
+            raise ValueError(f"{disc}: unexpected bytes at boatman check 0x{site:x}: {cur.hex()}")
+        data = s.to_bytes()
+        if len(data) != size:
+            raise ValueError(f"{disc}: size changed - refusing to write")
+        if apply:
+            with open(iso, "r+b") as f:
+                _, files = gciso.parse_fst(f)
+                _, off, _ = gciso.find_file(files, disc)[0]
+                f.seek(off)
+                f.write(data)
+    return "boats to Mount Kilanda need its key"
+
+
 def patch_stage_key_locks(iso, apply=True, sites=None):
     """Apply the in-game locks for every dungeon in `sites` (default: all 13
     in _STAGE_LOCK_SITES). Redirects each dungeon's own mainBasha entrance
@@ -1846,57 +1972,87 @@ def patch_stage_key_locks(iso, apply=True, sites=None):
     present (freshly applied or already there); raises if any site's bytes
     are neither vanilla nor already-patched (wrong game version, a
     conflicting prior edit, or an already-modified `mainBasha`)."""
+    import cftpatch
     sites = sites if sites is not None else _STAGE_LOCK_SITES
     key_by_dungeon = {s: kid for s, kid, _ in STAGE_KEYS}
-    cases = [(stage_id, key_by_dungeon[script], forward_idx)
-             for script, _, stage_id, forward_idx in sites]
+
+    def call(func_idx):
+        return bytes([0x0a]) + struct.pack(">I", (0xFFFF << 16) | func_idx)
+
+    # A node whose call opens the element menu (MJ_SWING_ATTRIB_1/2) keeps
+    # that call, so the element can be picked without the key; its key is
+    # checked when the menu's "enter" goes through the dispatcher, which then
+    # forwards to MJ_SWING_PADCHECK. Other nodes have their call redirected
+    # to the dispatcher, which forwards to the node's own MJ_SWING variant.
+    cases, site_calls = [], []
+    for script, call_off, stage_id, forward_idx in sites:
+        if forward_idx in _ELEMENT_MENU_FUNCS:
+            cases.append((stage_id, key_by_dungeon[script], _ENTER_FUNC))
+            site_calls.append((script, call_off, call(forward_idx), call(_STAGE_LOCK_DISPATCHER)))
+        else:
+            cases.append((stage_id, key_by_dungeon[script], forward_idx))
+            site_calls.append((script, call_off, call(_STAGE_LOCK_DISPATCHER), call(forward_idx)))
+    cases.append((_RIVER_STAGE_ID, None, _ENTER_FUNC))
     body = _stage_lock_dispatcher_body(cases)
     if len(body) > 18000:
         raise ValueError(f"dispatcher body ({len(body)}B) exceeds encountKaido's "
                           f"18000B budget - split across more than one repurposed function")
 
     tmp = os.path.join(tempfile.gettempdir(), "stagelock_world.cft")
-    _extract(iso, WORLD_CFT_DISC, tmp)
+    size = _extract(iso, WORLD_CFT_DISC, tmp)
     data = bytearray(open(tmp, "rb").read())
 
-    site_patched = {}
-    for script, call_off, _, forward_idx in sites:
-        cur = bytes(data[call_off:call_off + 5])
-        patched = bytes([0x0a]) + struct.pack(">I", (0xFFFF << 16) | 598)
-        orig = bytes([0x0a]) + struct.pack(">I", (0xFFFF << 16) | forward_idx)
-        if cur == patched:
-            site_patched[script] = True
-        elif cur == orig:
-            site_patched[script] = False
-        else:
-            raise ValueError(f"{script}: unexpected bytes at call site 0x{call_off:x}: "
-                              f"{cur.hex()} (expected {orig.hex()} or {patched.hex()} - "
-                              f"wrong game version, or a conflicting prior edit?)")
+    # each edit: (file offset, bytes it must end up as, bytes it may hold now)
+    edits = [(_STAGE_LOCK_ENCOUNTER_CALL_OFF, _STAGE_LOCK_ENCOUNTER_CALL_PATCHED,
+              {_STAGE_LOCK_ENCOUNTER_CALL_ORIG}, "WM_MoveEnd's call to encountKaido")]
+    for script, call_off, want, other in site_calls:
+        edits.append((call_off, want, {other}, f"{script} call site"))
+    for off, want, allowed, what in edits:
+        cur = bytes(data[off:off + len(want)])
+        if cur != want and cur not in allowed:
+            raise ValueError(f"{what}: unexpected bytes at 0x{off:x}: {cur.hex()} (expected "
+                              f"{want.hex()} - wrong game version, or a conflicting prior edit?)")
+        data[off:off + len(want)] = want
+    data[_STAGE_LOCK_ENCOUNTKAIDO_INFO_OFF:_STAGE_LOCK_ENCOUNTKAIDO_INFO_OFF + 4] = struct.pack(">I", 8)
+    data[_STAGE_LOCK_ENCOUNTKAIDO_VAL_ARG0_OFF:_STAGE_LOCK_ENCOUNTKAIDO_VAL_ARG0_OFF + 4] = struct.pack(">I", 8)
+    data[_STAGE_LOCK_ENCOUNTKAIDO_CODE_OFF:_STAGE_LOCK_ENCOUNTKAIDO_CODE_OFF + len(body)] = body
+    open(tmp, "wb").write(data)
 
-    if not all(site_patched.values()):
-        cur = data[_STAGE_LOCK_ENCOUNTER_CALL_OFF:_STAGE_LOCK_ENCOUNTER_CALL_OFF + 5]
-        if cur not in (_STAGE_LOCK_ENCOUNTER_CALL_ORIG, _STAGE_LOCK_ENCOUNTER_CALL_PATCHED):
-            raise ValueError(f"unexpected bytes at encounter-call site: {cur.hex()}")
-        if apply:
-            data[_STAGE_LOCK_ENCOUNTER_CALL_OFF:_STAGE_LOCK_ENCOUNTER_CALL_OFF + 5] = \
-                _STAGE_LOCK_ENCOUNTER_CALL_PATCHED
-            data[_STAGE_LOCK_ENCOUNTKAIDO_INFO_OFF:_STAGE_LOCK_ENCOUNTKAIDO_INFO_OFF + 4] = \
-                struct.pack(">I", 8)
-            data[_STAGE_LOCK_ENCOUNTKAIDO_VAL_ARG0_OFF:_STAGE_LOCK_ENCOUNTKAIDO_VAL_ARG0_OFF + 4] = \
-                struct.pack(">I", 8)
-            data[_STAGE_LOCK_ENCOUNTKAIDO_CODE_OFF:_STAGE_LOCK_ENCOUNTKAIDO_CODE_OFF + len(body)] = body
-            for script, call_off, _, _fidx in sites:
-                if not site_patched[script]:
-                    data[call_off:call_off + 5] = bytes([0x0a]) + struct.pack(">I", (0xFFFF << 16) | 598)
-            open(tmp, "wb").write(data)
-            with open(iso, "r+b") as f:
-                _, files = gciso.parse_fst(f)
-                _, off, _ = gciso.find_file(files, WORLD_CFT_DISC)[0]
+    # The element menus: always offered (not only once the stage is cleared),
+    # and "enter" goes through the dispatcher's key check.
+    s = cftpatch.Script(tmp)
+    for name, (cleared_jz, vanilla_target, enter_calls) in _ELEMENT_MENU_EDITS.items():
+        if s.names.index(name) not in _ELEMENT_MENU_FUNCS:
+            raise ValueError(f"world.cft function table isn't the expected one ({name})")
+        code = bytearray(s.code(name))
+        cur = bytes(code[cleared_jz:cleared_jz + 5])
+        jz_vanilla = bytes([0x08]) + struct.pack(">I", vanilla_target)
+        jz_always = bytes([0x08]) + struct.pack(">I", cleared_jz + 5)    # jumps to the next line either way
+        if cur not in (jz_vanilla, jz_always):
+            raise ValueError(f"{name}: unexpected bytes at 0x{cleared_jz:x}: {cur.hex()}")
+        code[cleared_jz:cleared_jz + 5] = jz_always
+        for at in enter_calls:
+            cur = bytes(code[at:at + 5])
+            if cur not in (call(_ENTER_FUNC), call(_STAGE_LOCK_DISPATCHER)):
+                raise ValueError(f"{name}: unexpected bytes at 0x{at:x}: {cur.hex()}")
+            code[at:at + 5] = call(_STAGE_LOCK_DISPATCHER)
+        s.set_code(name, code)
+    data = s.to_bytes()
+    if len(data) != size:
+        raise ValueError("world.cft size changed - refusing to write")
+    if apply:
+        with open(iso, "r+b") as f:
+            _, files = gciso.parse_fst(f)
+            _, off, _ = gciso.find_file(files, WORLD_CFT_DISC)[0]
+            f.seek(off)
+            if f.read(size) != data:
                 f.seek(off)
                 f.write(data)
 
-    # Mount Kilanda's 4-argument entrances (and the Leuda stop repair)
+    # Mount Kilanda's 4-argument entrances (and the Leuda stop repair), and
+    # the boatmen who would sail there
     _patch_kilanda_and_leuda(iso, apply=apply)
+    _patch_kilanda_boats(iso, apply=apply)
 
     with open(iso, "r+b" if apply else "rb") as f:
         off, _ = gciso.dol_span(f)
@@ -2033,6 +2189,12 @@ def cmd_patch(iso, json_path, max_artifacts=4):
             print("Installed AP Item into ISO (definition + name + icon).")
     except Exception as e:
         print(f"note: could not auto-install AP Item ({e}); JSON placing it may fail")
+    try:
+        import titlelogo
+        if titlelogo.install(iso):
+            print("Installed the Archipelago title logo, disc name and banner.")
+    except Exception as e:
+        print(f"Note: could not install the title logo ({e}).")
     with open(json_path, encoding="utf-8") as f:
         spec = json.load(f)
     # Moved dungeons and shuffled Miasma Streams both rely on Goblin Wall's spot
@@ -2402,7 +2564,7 @@ def apply_bosses(iso, boss_plan, spoiler=None):
 # Version of the Archipelago world (worlds/ffcc VERSION) this randomizer is made
 # for. Seeds record the version that generated them; the AP patch warns when
 # they differ, since options and item placement rules change between versions.
-AP_WORLD_VERSION = (0, 1, 4)
+AP_WORLD_VERSION = (0, 1, 7)
 
 
 def load_ffcc(path):
@@ -2516,6 +2678,14 @@ def cmd_hybrid_patch(iso, ref_iso, ffcc_file):
             print("Installed AP Item into ISO (definition + name + icon).")
     except Exception as e:
         print(f"Note: could not auto-install AP Item ({e}); 0x162 must already be present.")
+    try:
+        import titlelogo
+        # the disc name and banner say whose seed this ISO is for
+        if titlelogo.install(iso, player=self_player, seed=placement_json.get("seed")):
+            print(f"Installed the Archipelago title logo; disc named for {self_player}, "
+                  f"seed {placement_json.get('seed')}.")
+    except Exception as e:
+        print(f"Note: could not install the title logo ({e}).")
 
     # ── Options from the AP world ───────────────────────────────────────────────
     settings = placement_json.get("settings", {})
@@ -2646,6 +2816,12 @@ def cmd_ap_patch(iso, ref_iso):
             print("Installed AP Item into ISO (definition + name + icon).")
     except Exception as e:
         print(f"Note: could not auto-install AP Item ({e}); 0x162 must already be present.")
+    try:
+        import titlelogo
+        if titlelogo.install(iso):
+            print("Installed the Archipelago title logo, disc name and banner.")
+    except Exception as e:
+        print(f"Note: could not install the title logo ({e}).")
 
     found = dungeons_in_iso(iso)
     total_slots = 0

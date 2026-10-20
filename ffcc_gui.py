@@ -512,8 +512,10 @@ class RandomizerTab(ttk.Frame):
         ns.debug_menu = self.debug_menu.get()
         return ns
 
-    def _make_copy(self, src, out):
-        """Copy source -> output (the only file we write). Returns True on success."""
+    def _make_copy(self, src, out, seed=None):
+        """Copy source -> output (the only file we write). Returns True on
+        success. The output gets the Archipelago title logo and banner, its
+        disc name showing `seed` when given."""
         if os.path.isfile(out) and not messagebox.askyesno(
                 "Overwrite output", f"{os.path.basename(out)} exists. Overwrite it?"):
             return False
@@ -522,6 +524,13 @@ class RandomizerTab(ttk.Frame):
         except Exception as e:
             messagebox.showerror("Copy failed", str(e)); return False
         self.log.write(f"Created {out}")
+        try:
+            import titlelogo
+            if titlelogo.install(out, seed=seed):
+                self.log.write("Installed the Archipelago title logo, disc name and banner"
+                               + (f" (seed {seed})" if seed is not None else ""))
+        except Exception as e:
+            self.log.write(f"  [note] title logo: {e}")
         return True
 
     # -- actions --
@@ -538,9 +547,10 @@ class RandomizerTab(ttk.Frame):
             self.log.write(run_capture(rnd.cmd_run, src, self._ns(), False))
             return
         out = self._need_out(src)
-        if not out or not self._make_copy(src, out):
+        ns = self._ns()                                  # once, so the disc name has this run's seed
+        if not out or not self._make_copy(src, out, seed=ns.seed):
             return
-        self._randomize(out, self._ns())
+        self._randomize(out, ns)
 
     def _set_busy(self, busy):
         for b in self._buttons:

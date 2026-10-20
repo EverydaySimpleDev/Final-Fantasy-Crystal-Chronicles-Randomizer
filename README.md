@@ -381,6 +381,8 @@ py gciso.py list|extract|inject "<iso>" <disc_path> [file]   # raw file in/out o
 py items.py show|list|set <param.cfd> <id> ...               # edit item stats/definitions
 py customitem.py list-free|show|add "<iso>" ...              # add a custom item (above)
 py tex.py export|import <file.tex> ...                       # edit textures (PNG round-trip)
+py titlelogo.py build|install|preview ...                   # title logo, disc name and banner (see Documentation/Title Screen Logo.md)
+py equipment.py show|export <iso> [equipment_table.py]       # progressive equipment upgrade paths for the AP world
 py objimport.py export|import|newmesh|roundtrip <model.chm>  # edit/replace models (Blender)
 py chmio.py <file>          # byte-exact model-container round-trip check
 py dlst.py  <model.chm>     # inspect/verify display lists (faces)

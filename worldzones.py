@@ -117,13 +117,28 @@ def complete_plan(fixed):
     return plan
 
 
+# Nodes on this side of the Jegon River (Tipa Peninsula, Iron Mine Downs, Vale
+# of Alfitaria, Veo Lu). The river dries up in Year 5 until Veo Lu Sluice is
+# healed or Year 8 comes, so Veo Lu Sluice stays on one of these nodes or a
+# player could be cut off from it.
+SLUICE_NODES = ("river", "gob", "mine", "kinoko", "ruin", "gigas", "water")
+
+
 def random_plan(rng, fixed=None):
-    """Shuffle all 12 dungeons over the 12 nodes; `fixed` placements are kept."""
+    """Shuffle all 12 dungeons over the 12 nodes; `fixed` placements are kept.
+    Veo Lu Sluice always lands on one of SLUICE_NODES (unless `fixed` puts it
+    somewhere else)."""
     fixed = dict(fixed or {})
     nodes = [n for n in DUNGEONS if n not in fixed]
     left = [s for s in DUNGEONS if s not in fixed.values()]
     rng.shuffle(left)
     plan = dict(zip(nodes, left))
+    sluice = next((n for n, d in plan.items() if d == "water"), None)
+    if sluice is not None and sluice not in SLUICE_NODES:
+        near = [n for n in SLUICE_NODES if n in plan]
+        if near:
+            swap = rng.choice(near)
+            plan[sluice], plan[swap] = plan[swap], plan[sluice]
     plan.update(fixed)
     return plan
 

@@ -51,8 +51,18 @@ be vanilla; re-applying the same layout does nothing.
 the call of the node it now sits on, using that node's own `MJ_SWING`
 variant. The node that hosts River Belle Path (never locked) is left open.
 
-**Not for Archipelago seeds.** The apworld's logic assumes each dungeon is
-at its vanilla node.
+**Archipelago seeds** shuffle the zones in the AP world (option Shuffle
+Loading Zones) and send the layout to the patcher in the `.ffcc` file. The AP
+world only keeps layouts that can be finished year by year.
+
+**Veo Lu Sluice stays on this side of the Jegon River.** The river dries up
+in Year 5 until Veo Lu Sluice is healed (Life on its pumpflowers) or Year 8
+comes, and the Plains of Fum ferry needs it. A Veo Lu Sluice across the river
+could leave a player stuck until Year 8, so both shuffles keep it on a node
+in Tipa Peninsula, Iron Mine Downs, Vale of Alfitaria or Veo Lu: `river`,
+`gob`, `mine`, `kinoko`, `ruin`, `gigas` or `water` (`SLUICE_NODES` in
+`worldzones.py`, `SLUICE_AREAS` in the AP world's `rules.py`). A placement
+given by hand is used as given.
 
 **Code:** `worldzones.py` (`apply_plan`, `status`, `random_plan`,
 `complete_plan`, `stage_lock_sites`).

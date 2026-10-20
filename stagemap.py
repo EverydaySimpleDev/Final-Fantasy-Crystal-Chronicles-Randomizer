@@ -977,40 +977,72 @@ def render_dungeon(iso, script, tile=TILE, gap=24, label_height=44, variants=(("
         rows, _ = _legend_rows(everything, img.width, small)
         legend = rows * 24 + 12 if rows else 0
         tiles.append((area, img, to_px, _chest_spots(iso, disc), monsters, hotspots, letters, legend))
-    cols = min(3, len(tiles))
-    rows = [tiles[i:i + cols] for i in range(0, len(tiles), cols)]
-    width = max(sum(t[1].width for t in row) + gap * (len(row) - 1) for row in rows)
-    row_heights = [max(t[1].height + t[7] for t in row) + label_height for row in rows]
-    height = sum(row_heights) + gap * (len(rows) - 1)
+    sizes = {t[0]: (t[1].width, t[1].height + t[7] + label_height) for t in tiles}
+    place, width, height = _layout(script, [t[0] for t in tiles], sizes, gap)
     font = _font(28)
     images = {}
     for suffix, cycles, show_hotspots in variants:
         out = Image.new("RGB", (width, height), BACKGROUND)
         draw = ImageDraw.Draw(out)
-        y = 0
-        for row, row_height in zip(rows, row_heights):
-            x = 0
-            for area, img, to_px, spots, monsters, hotspots, letters, legend in row:
-                draw.text((x + 8, y + 6), f"Area {area + 1}", fill=(235, 235, 235), font=font)
-                out.paste(_marked_tile(img, monsters, hotspots, letters, cycles, show_hotspots, legend),
-                          (x, y + label_height))
-                x += img.width + gap
-            y += row_height + gap
+        for area, img, to_px, spots, monsters, hotspots, letters, legend in tiles:
+            x, y = place[area]
+            draw.text((x + 8, y + 6), f"Area {area + 1}", fill=(235, 235, 235), font=font)
+            out.paste(_marked_tile(img, monsters, hotspots, letters, cycles, show_hotspots, legend),
+                      (x, y + label_height))
         images[suffix] = out
-    pins, y = {}, 0
-    for row, row_height in zip(rows, row_heights):
-        x = 0
-        for area, img, to_px, spots, *_ in row:
-            for flag, points in spots.items():
-                chest = chest_of.get((area, flag))
-                if chest is None:
-                    continue
-                for wx, wz in points:
-                    px, py = to_px(wx, wz)
-                    pins.setdefault(chest, []).append([int(x + px), int(y + label_height + py)])
-            x += img.width + gap
-        y += row_height + gap
+    pins = {}
+    for area, img, to_px, spots, *_ in tiles:
+        x, y = place[area]
+        for flag, points in spots.items():
+            chest = chest_of.get((area, flag))
+            if chest is None:
+                continue
+            for wx, wz in points:
+                px, py = to_px(wx, wz)
+                pins.setdefault(chest, []).append([int(x + px), int(y + label_height + py)])
     return images, pins
+
+
+# Dungeons whose areas are laid out in columns instead of rows of three:
+# {script: [[area, ...] per column, top to bottom]} (Area N is area N - 1).
+# Moschet Manor's rooms sit beside the hall door they open from: the left
+# doors' rooms on the left, the right doors' on the right, the top door's
+# room above the hall.
+LAYOUT = {
+    "gigas": [[3, 2, 1], [4, 0], [5, 6, 7]],
+}
+
+
+def _layout(script, areas, sizes, gap):
+    """({area: (x, y)}, width, height) for tiles of `sizes` ({area: (w, h)}).
+    Columns from LAYOUT, each tile centred in its column (areas LAYOUT
+    doesn't name go in a last column); otherwise rows of up to three."""
+    place = {}
+    columns = LAYOUT.get(script)
+    if columns:
+        columns = [[a for a in col if a in sizes] for col in columns]
+        rest = [a for a in areas if not any(a in col for col in columns)]
+        x = 0
+        for col in [c for c in columns + [rest] if c]:
+            w = max(sizes[a][0] for a in col)
+            y = 0
+            for a in col:
+                place[a] = (x + (w - sizes[a][0]) // 2, y)
+                y += sizes[a][1] + gap
+            x += w + gap
+    else:
+        per_row = min(3, len(areas))
+        y = 0
+        for i in range(0, len(areas), per_row):
+            row = areas[i:i + per_row]
+            x = 0
+            for a in row:
+                place[a] = (x, y)
+                x += sizes[a][0] + gap
+            y += max(sizes[a][1] for a in row) + gap
+    width = max(place[a][0] + sizes[a][0] for a in areas)
+    height = max(place[a][1] + sizes[a][1] for a in areas)
+    return place, width, height
 
 
 def write_tracker_maps(iso, out_dir):
