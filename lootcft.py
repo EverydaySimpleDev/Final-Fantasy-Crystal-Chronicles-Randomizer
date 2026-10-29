@@ -2,7 +2,7 @@
 
 The loot table lives in get_treasure(): sets of 7 records (stride 0x5b), item ID
 is a push-int at record+0 (bytes `03 00 00 <id16>`), chest/slot index byte at
-record+0x42 counting 1..7. Confirmed across all dungeons.
+record+0x42 counting 1..7. The same layout is used in all dungeons.
 """
 import struct
 import cft
@@ -11,11 +11,10 @@ STRIDE = 0x5b
 IDXOFF = 0x42
 SETLEN = 7
 
-# script basename -> friendly dungeon name. Identities confirmed by matching each
-# cft's chest contents to the GameCube level maps (Levels/*.jpg). NOTE: each
+# script basename -> friendly dungeon name. NOTE: each
 # dungeon spans several area files dvd/cft/<script>_0.cft, _1, _2 ... - the
-# randomizer processes them all. (`ruin` is Tida, not Rebena; `city` is the real
-# Rebena Te Ra; `gigas`=Moschet (Gigas Lord); `fort`=Daemon's Court.)
+# randomizer processes them all. (`ruin` is Tida, not Rebena. `city` is the real
+# Rebena Te Ra, `gigas`=Moschet (Gigas Lord), `fort`=Daemon's Court.)
 DUNGEONS = [
     ("river",  "River Belle Path"),
     ("gob",    "Goblin Wall"),
@@ -149,10 +148,10 @@ def find_sets(cft_path, valid=None, min_len=2):
     """Return the treasure SETS (one per chest), each a list of (offset, id).
     Records are found by REC_SIG, grouped into contiguous 0x5b runs, then each
     run is split into sets wherever the per-record chest index stops ascending.
-    `valid` filters which ids count as real items for the min_len test; the
+    `valid` filters which ids count as real items for the min_len test. The
     returned sets still contain every slot (including empty/placeholder ones)."""
     raw = open(cft_path, "rb").read()
-    # Only real-item record-starts (id >= 1) sit on the clean 0x5b record lattice;
+    # Only real-item record-starts (id >= 1) sit on the clean 0x5b record lattice.
     # the internal `03 00 00 00 00` pushes inside each record also match REC_SIG
     # but carry id 0, so filtering them out is what makes grouping work.
     allslots = find_item_slots(cft_path, valid=_valid_item)
@@ -175,10 +174,10 @@ def find_sets(cft_path, valid=None, min_len=2):
     return [s for s in sets if sum(pred(v) for _, v in s) >= min_len]
 
 
-# Reference 7-slot -> cycle mapping (confirmed against in-game River chests:
+# Reference 7-slot -> cycle mapping (from River Belle Path's chests:
 # cycle 1 = slots 1-4, cycle 2 = slots 5-6, cycle 3 = slot 7). Each slot maps to
-# exactly one cycle (non-overlapping) so "one item per cycle" is well-defined;
-# for other set lengths the slot position is scaled onto this reference.
+# exactly one cycle (non-overlapping) so "one item per cycle" is well-defined.
+# For other set lengths the slot position is scaled onto this reference.
 _CYCLE_REF = [1, 1, 1, 1, 2, 2, 3]
 
 

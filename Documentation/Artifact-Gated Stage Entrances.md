@@ -1,6 +1,6 @@
 # Artifact-Gated Stage Entrances
 
-Worked example, tested in-game: entering Goblin Wall from the world map
+Worked example: entering Goblin Wall from the world map
 requires owning a specific artifact ("Gob Key", item `0xE9`). No key, no
 entry - the world map just doesn't let the transition happen. This document
 is the full recipe: every file touched, every byte changed, and why each
@@ -196,8 +196,9 @@ So with stage keys the lock works differently at these stops:
 The menus pick their elements from the stop (`G61`), so with shuffled loading
 zones the elements stay with the world-map stop, not the dungeon.
 
-Tested in game (Selepation Cave, no key, never cleared): the menu shows, the
-element changes, entering is refused; with the key, entering works.
+So at a stop whose dungeon isn't cleared and whose key you don't have, the
+menu still shows and the element can be changed, but entering is refused;
+with the key, entering works.
 
 ### Boats to Mount Kilanda
 
@@ -226,10 +227,9 @@ refilling the river at Veo Lu Sluice also sets 6):
 - Port Tipa: only while the river is dry (`eventWork[1] == 5`).
 - Leuda: from Year 5.
 
-Tested in game at the Jegon River pier: the boatman refuses Mount Kilanda
-without the key, and with the key the trip goes through and the caravan
-enters Mount Kilanda (so the world-map lock passes too). Port Tipa and Leuda
-use the same gate but haven't been played yet.
+Without the key, the boatman turns down the Mount Kilanda trip. With it, the
+trip goes through and the caravan enters Mount Kilanda (the world-map lock
+passes too). All three boats use the same gate.
 
 Limitations:
 

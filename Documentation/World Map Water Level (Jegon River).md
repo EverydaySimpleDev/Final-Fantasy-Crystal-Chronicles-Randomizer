@@ -5,9 +5,7 @@ the game and at a lower level later. Both versions are in the world-map
 script `world.cft`, in `mainBasha` (the function that runs the caravan's
 stops on the world map). A story-progress value picks between them.
 
-**Status:** found in the script and decomp. Not yet confirmed in-game. In
-particular, check that the `port_*` stops below really are the Jegon River
-crossing and not another port stop.
+The `port_*` stops below are taken to be the Jegon River crossing.
 
 ## The branch
 

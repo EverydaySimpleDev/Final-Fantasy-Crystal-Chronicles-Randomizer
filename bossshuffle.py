@@ -13,12 +13,12 @@ size, so this uses gciso.rebuild_iso).
 Special cases:
   - Goblin King and Lich teleport to fixed coordinates in Start.dol and rely
     on their arena's script (Goblin Wall's gimmick / Rebena Te Ra's orbs) to
-    drive their boss state. Random shuffles keep them home (PINNED); an
+    drive their boss state. Random shuffles keep them home (PINNED), but an
     explicit plan may still move them. A moved Lich brings its orb shield
     (cftpatch.import_lich_orbs), and a moved Lich or Goblin King gets its
     teleport table rewritten around the new arena's spawn points. Those
     positions are estimated, not hand-checked.
-  - Lich and Zombie Dragon need Holy; holy_dungeons(plan) says where they end
+  - Lich and Zombie Dragon need Holy. holy_dungeons(plan) says where they end
     up so randomizer.py can keep that dungeon's magicite sets vanilla.
   - Mount Vellenge's multi-part final boss is not included.
 """
@@ -71,7 +71,7 @@ def vanilla_plan():
 
 def random_plan(rng, fixed=None):
     """Shuffle every non-pinned boss among the non-pinned arenas. `fixed`
-    ({script: boss}) is kept as given; those arenas and bosses are left out
+    ({script: boss}) is kept as given, and those arenas and bosses are left out
     of the shuffle. If fixed placements leave more arenas than bosses, the
     spare arenas keep their own boss."""
     fixed = dict(fixed or {})
@@ -90,7 +90,7 @@ def holy_dungeons(plan):
 
 
 def normalize_plan(spec):
-    """Accept {script or dungeon name: boss name}; return {script: boss}.
+    """Accept {script or dungeon name: boss name} and return {script: boss}.
     Unknown keys or bosses raise ValueError. Missing arenas keep their boss."""
     import lootcft
     friendly = {f.lower(): s for s, f in lootcft.DUNGEONS}

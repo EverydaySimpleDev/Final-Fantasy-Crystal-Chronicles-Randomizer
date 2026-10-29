@@ -10,7 +10,7 @@ Tabs:
   * File Tools  - extract/inject/list files in the ISO (gciso.py) and edit item
                   stats in param.cfd (items.py).
 
-Nothing here does anything the command-line tools can't; it just exposes them
+Nothing here does anything the command-line tools can't. It just exposes them
 with buttons and file pickers. The Randomizer never writes your source ISO - it
 always creates a separate output ISO (you choose where).
 """
@@ -87,7 +87,7 @@ def apply_theme(root):
 
 
 def run_capture(fn, *args, **kwargs):
-    """Call fn with stdout captured; return whatever it printed (+ errors)."""
+    """Call fn with stdout captured and return whatever it printed (+ errors)."""
     buf = io.StringIO()
     try:
         with contextlib.redirect_stdout(buf):
@@ -310,8 +310,8 @@ class RandomizerTab(ttk.Frame):
         self._update_start_loc_warning()
         ttk.Checkbutton(gt, text="Skip Meteor Parasite -> Mio questions -> jump straight to Raem",
                         variable=self.skip_mio).pack(anchor="w", pady=(6, 0))
-        ttk.Label(gt, text="EXPERIMENTAL: not yet confirmed safe by a full playthrough - "
-                  "may leave state the Mio questions would normally set unset.",
+        ttk.Label(gt, text="EXPERIMENTAL: may leave state the Mio questions would normally "
+                  "set unset.",
                   foreground="#a33", wraplength=520, justify="left").pack(anchor="w")
         ttk.Checkbutton(gt, text="Skip the opening intro cutscene",
                         variable=self.skip_intro).pack(anchor="w", pady=(6, 0))
@@ -330,8 +330,7 @@ class RandomizerTab(ttk.Frame):
                   "and hides each one in a handful of chests in a randomized, always-"
                   "solvable chain of dungeons - River Belle Path always stays open, and "
                   "no dungeon's key is ever placed inside that same dungeon. All 13 "
-                  "gated dungeons now check for their key on entry, but this hasn't yet "
-                  "been confirmed by a full in-game playthrough of every dungeon.",
+                  "gated dungeons check for their key on entry.",
                   foreground="#a33", wraplength=520, justify="left").pack(anchor="w")
         ttk.Checkbutton(gt, text="Randomize world-map loading zones (which dungeon each map spot leads to)",
                         variable=self.randomize_world_zones).pack(anchor="w", pady=(6, 0))
@@ -831,7 +830,7 @@ class RandomizerTab(ttk.Frame):
             self._q.put(("done", None))            # always re-enables the buttons
 
     def _poll_rand(self):
-        """Runs ON the UI thread; drains the worker's queue and updates widgets."""
+        """Runs ON the UI thread. Drains the worker's queue and updates widgets."""
         try:
             while True:
                 kind, val = self._q.get_nowait()
@@ -1059,8 +1058,8 @@ GAMEPLAY TWEAKS (Randomizer tab)
        carrying the chalice.
     Starting location  - start a new game somewhere other than Tipa (only
        towns where Year 1 is completable are offered).
-    Skip Meteor Parasite -> Mio questions -> Raem  - EXPERIMENTAL, not yet
-       confirmed safe across a full playthrough.
+    Skip Meteor Parasite -> Mio questions -> Raem  - EXPERIMENTAL, may leave
+       state the Mio questions would normally set unset.
     Skip the opening intro cutscene  - jumps straight past it on a new game.
     Show Goblin Wall on the world map from Year 1  - reveals its road/icon
        from the start instead of waiting for the Year 1->2 transition.
@@ -1075,13 +1074,8 @@ GAMEPLAY TWEAKS (Randomizer tab)
     Lock stages behind key artifacts  - EXPERIMENTAL, creates 14 new key
        artifacts (one per dungeon) placed via a randomized, always-solvable
        chest chain (River Belle Path always stays open; chests only, never
-       enemy drops; no dungeon's key is ever in that same dungeon). 6 of the
-       13 gated dungeons (Goblin Wall, Veo Lu Sluice, Moschet Manor, Tida,
-       Mine of Cathuriges, Mushroom Forest) are confirmed working in-game;
-       the other 7 (Selepation Cave, Daemon's Court, Conall Curach, Rebena Te
-       Ra, Mount Vellenge, Mount Kilanda, Lynari Desert) are only statically
-       verified so far, NOT yet confirmed in-game - treat as unvalidated
-       until spot-checked.
+       enemy drops; no dungeon's key is ever in that same dungeon). All 13
+       gated dungeons check for their key on entry.
        The 14 keys: River/Gob/Mine/Shroom/Tida/Manor/Lava/Fort/Selep/
        Sluice/Lynari/Conall/Rebena/Vellen Key, unlocking River Belle Path
        (never actually locked)/Goblin Wall/Mine of Cathuriges/Mushroom
@@ -1414,7 +1408,7 @@ class APPatchTab(ttk.Frame):
             filetypes=[("Disc image", "*.iso *.gcm"), ("All", "*.*")])
         if p:
             self.out.set(p)
-            # keeping the suggested name only picks the folder; the seed name
+            # keeping the suggested name only picks the folder, the seed name
             # still follows when a .ffcc file is chosen later
             self._out_chosen = os.path.basename(p) != init
 

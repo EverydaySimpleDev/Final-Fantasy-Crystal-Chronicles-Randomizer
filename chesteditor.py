@@ -3,14 +3,14 @@ chesteditor.py - GUI to view and edit FFCC dungeon chest contents.
 
 Run:  python chesteditor.py
 
-  1. Open ISO   - pick your .iso (keep a backup; edits are written in place).
+  1. Open ISO   - pick your .iso (keep a backup, edits are written in place).
   2. Pick a dungeon and click Load.
   3. The table shows one row per CHEST. The three columns are what that chest
      gives in Cycle 1, Cycle 2, and Cycle 3 (the dungeon's 1st/2nd/3rd visit).
      "Chest N" rows (green) match Game8's chest list (each chest numbered once
      per dungeon). Other sets are classified like the GameCube set-list sheet:
      "Monster N" (red, enemy drop), "Magicite N" (purple, stone/element spawn),
-     "Gathering N" (tan, food/seeds). Dungeons span several AREA files; Save
+     "Gathering N" (tan, food/seeds). Dungeons span several AREA files. Save
      writes every edited area.
   4. Double-click a cycle cell to change what that chest gives that cycle. The
      picker lists every DROPPABLE item (artifact / magicite / phoenix down /
@@ -20,7 +20,7 @@ Run:  python chesteditor.py
   6. Save to ISO writes your edits back in place.
 
 Chests are detected with lootcft.find_sets() (layout-independent), so every
-dungeon is editable. A cycle covers several internal slots; editing a cycle
+dungeon is editable. A cycle covers several internal slots, and editing a cycle
 sets all of that cycle's slots to your chosen item.
 """
 import os
@@ -49,7 +49,7 @@ def _valid(v):
 class App:
     def __init__(self, master):
         # `master` may be the root window (standalone) or a frame (embedded in a
-        # tab). Widgets pack into `master`; dialogs hang off the real window.
+        # tab). Widgets pack into `master`, dialogs hang off the real window.
         self.root = master.winfo_toplevel()
         if master is self.root:
             self.root.title("FFCC Chest Editor")

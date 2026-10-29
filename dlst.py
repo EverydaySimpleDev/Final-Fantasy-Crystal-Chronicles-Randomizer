@@ -90,7 +90,7 @@ def to_triangles(items):
 
 def _pad32(content):
     """Pad display-list content to a 32-byte boundary with NOP (0x00) bytes.
-    Stock DLSTs end with NOP padding; without it the GPU FIFO overreads past the
+    Stock DLSTs end with NOP padding. Without it the GPU FIFO overreads past the
     data and desyncs (the 'Unknown Opcode' crash)."""
     return content + b"\x00" * ((-len(content)) % 32)
 

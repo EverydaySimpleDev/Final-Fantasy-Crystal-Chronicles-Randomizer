@@ -5,7 +5,7 @@ cftpatch.py - structural (size-changing) patching of FFCC CFlat script files
 Main entry point: transplant_monster(), which makes monster `new_id` work in
 a stage that was built for monster `old_id`, by copying `new_id`'s per-ID
 switch cases out of a donor stage that natively supports it (miya_0.cft
-supports ~163 IDs; a boss's own arena file is the best donor for a boss).
+supports ~163 IDs, and a boss's own arena file is the best donor for a boss).
 See Documentation/Monster and Boss Swapping.md for the mechanism.
 
     py cftpatch.py transplant <dst.cft> <donor.cft> <old_id> <new_id> <out.cft>
@@ -17,7 +17,7 @@ The output is usually a different size from the input, so inject it with
 `gciso.py rebuild`, not `inject`.
 
 Per-ID switch shape (every one the compiler emits looks like this):
-    3A DUP; 03 <id> PUSHI; 2C ==; 08 <next> JZ; <body>; ... 07 <join> JMP
+    3A DUP, 03 <id> PUSHI, 2C ==, 08 <next> JZ, <body>, ... 07 <join> JMP
 All jump args (07/08/09) are absolute code offsets within the function, so
 growing or shrinking one case shifts every jump target after it.
 """
@@ -128,7 +128,7 @@ class Script:
 # ---------------------------------------------------------------------------
 
 JUMPS = (0x07, 0x08, 0x09)
-TGT = 0x00FFFFFF  # jump target = low 24 bits; top byte = &&/|| short-circuit flag
+TGT = 0x00FFFFFF  # jump target = low 24 bits, top byte = &&/|| short-circuit flag
 
 
 def _jumps(code):
@@ -152,7 +152,7 @@ def find_case(code, mid):
             ext = {t for o, op, t, _ in _jumps(code) if start <= o < end and op == 0x07
                    and not (start <= t < end) and not (end <= t <= end + 13)}
             if len(ext) > 1:
-                return hdr, start, end, ext  # nested exits; transplant refuses
+                return hdr, start, end, ext  # nested exits, transplant refuses
             return hdr, start, end, (ext.pop() if ext else None)
     return None
 
@@ -188,7 +188,7 @@ def learn_var_map(dst, donor):
             align(cs[a[1]:a[2]], cd[b[1]:b[2]])
     var_map = {k: next(iter(v)) for k, v in votes.items() if len(v) == 1}
     # Both files compile the same common headers first, so their permanent
-    # VAL tables share an identical prefix; indices inside it map to
+    # VAL tables share an identical prefix, and indices inside it map to
     # themselves. (Checked against the aligned votes, which must agree.)
     prefix = _common_val_prefix(dst, donor)
     for i in range(prefix):
@@ -363,7 +363,7 @@ def transplant_case(dst, donor, fn, old_id, new_id, var_map, log):
 
 
 def disable_case(dst, fn, old_id, log, sentinel=-0x7FFF):
-    """Relabel a case so it never matches; the new monster then takes the
+    """Relabel a case so it never matches. The new monster then takes the
     switch's default path, as it does in its donor stage."""
     code = bytearray(dst.code(fn))
     hdr = find_case(code, old_id)[0]
@@ -392,7 +392,7 @@ def swap_spawns(dst, old_id, new_id, log, fn="SPAWN_MONSTER", call="SPAWN"):
     return n
 
 
-# Functions whose top-level switch is confirmed to be on monster ID. Other
+# Functions whose top-level switch is on monster ID. Other
 # functions also contain `case <n>` labels that merely coincide with a
 # monster ID (item numbers, event states, ...), so they are never touched.
 MONSTER_SWITCHES = ("ParamSet", "setAttackCollision", "setDamageCollision")
@@ -406,7 +406,7 @@ def transplant_monster(dst_path, donor_path, old_id, new_id, out_path,
       - dst has case old_id, donor has none        -> disable it, so new_id
         takes the default path (as it does in the donor)
       - dst has no case old_id, donor has case new_id -> can't be done in
-        place; reported as NOT HANDLED
+        place, reported as NOT HANDLED
     then retargets the SPAWN records. Raises before writing anything if a
     case can't be transplanted safely. Returns a log."""
     dst, donor = Script(dst_path), Script(donor_path)
@@ -478,7 +478,7 @@ def remap_code(dst, donor, code, var_map, where=""):
 
 
 def import_functions(dst, donor, names, log):
-    """Append donor functions that dst lacks (names only; bodies are
+    """Append donor functions that dst lacks (names only, bodies are
     remapped later by finish_functions, once every name is resolvable)."""
     func_chunk = dst.root.find(b"FUNC")[0]
     for nm in names:
@@ -557,7 +557,7 @@ def append_before_return(dst, fn, code_bytes, log):
 
 
 def encode_call(dst, fn, args):
-    """Bytecode for `fn(*args); POP`. Ints -> PUSHI, floats -> PUSHF (negative
+    """Bytecode for `fn(*args)` followed by POP. Ints -> PUSHI, floats -> PUSHF (negative
     floats use PUSHF |x| + NEG, as the compiler emits them)."""
     out = bytearray()
     for v in args:
@@ -600,7 +600,7 @@ def import_lich_orbs(dst, donor, var_map, orb_positions, log):
 
 def insert_code(dst, fn, at, code_bytes, log):
     """Insert raw bytecode into `fn` at instruction offset `at`. Jumps to
-    targets after `at` shift by the inserted length; jumps to `at` itself
+    targets after `at` shift by the inserted length. Jumps to `at` itself
     now land on the inserted code (so a loop's `continue` still runs it).
     `code_bytes` must already use final (post-insertion) jump targets."""
     code = dst.code(fn)
@@ -620,9 +620,9 @@ def insert_code(dst, fn, at, code_bytes, log):
 
 
 def add_class_member(dst, cname, log, kind=1):
-    """Append one member to a class (VAL entry = type, flags, name-index;
-    the name index is debug-only, so the last member of that type's is
-    reused). Returns the new member's `this[]` index."""
+    """Append one member to a class (VAL entry = type, flags, name-index).
+    The name index is debug-only, so the last member of that type's is
+    reused. Returns the new member's `this[]` index."""
     v = _classes(dst)[class_names(dst).index(cname)].find(b"VAL ")[0]
     ents = [v.payload[i * 4:i * 4 + 4] for i in range(v.a0)]
     tmpl = next(e for e in reversed(ents) if e[0] == kind)
@@ -633,13 +633,13 @@ def add_class_member(dst, cname, log, kind=1):
 
 
 def _sys_call(dst, name, high16):
-    # high16: 0xFFFF for script-level functions; for engine class functions
+    # high16: 0xFFFF for script-level functions. For engine class functions
     # it is the engine command number (e.g. setDamageColMask = 0xFFD0 = -0x30).
     return b"\x0a" + struct.pack(">I", (high16 << 16) | dst.names.index(name))
 
 
 def loop_body_start(dst, fn):
-    """Offset of a `while (1)` body: `fn` must open with PUSHI 1; JZ <end>
+    """Offset of a `while (1)` body: `fn` must open with PUSHI 1, JZ <end>
     and jump back to 0 at the bottom."""
     code = dst.code(fn)
     ins = list(cft.disasm(code))
@@ -659,11 +659,12 @@ def add_orb_shield(dst, boss_id, log, fn="mainMonster_Logic", monster_id_member=
     engine's own enable/disable calls in between:
 
         if (this[18] == boss_id) {
-            s = getSysControl(3) & 1;
+            s = getSysControl(3) & 1
             if (s != this[last]) {
-                this[last] = s;
-                if (s) { setDamageColMask(0,0); setDamageColMask(1,0); }
-                else   { setDamageColMask(0,1); setDamageColMask(1,1); }
+                this[last] = s
+                mask = s ? 0 : 1
+                setDamageColMask(0, mask)
+                setDamageColMask(1, mask)
             }
         }
     """

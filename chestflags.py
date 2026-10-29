@@ -6,19 +6,18 @@ patcher wrote the item into.
 Every chest is a SPAWN_TBOX record [127, A, 0, B, x, y, z, rot] (see
 spawn_map.py):
   A = get_treasure case number in the low 16 bits (get_treasure is a switch
-      on it; the case's body holds the chest's loot set, lootcft.find_sets
+      on it, the case's body holds the chest's loot set, lootcft.find_sets
       order). Some dungeons (Daemon's Court, Veo Lu Sluice) also set a value
       in the high 16 bits - meaning unknown, kept as `extra`.
   B = chest flag + 1. Bit n of the chest-flag words at 0x80926000 is
       byte (3 - n % 32 // 8) + 4 * (n // 32), bit n % 8 - i.e. bit n of
-      big-endian 32-bit words. (Verified against River Belle Path's
-      hand-checked client table.)
+      big-endian 32-bit words.
 The patcher maps (area, loot set) -> Game8 chest number with
 randomizer.dungeon_chest_map(), so going record -> loot set -> chest number
 gives the same numbering the AP locations use.
 
     py chestflags.py ISO                      # print the flag table per dungeon
-    py chestflags.py export ISO chest_table.py  # write the AP world's chest table
+    py chestflags.py export ISO chest_table.py  # write the AP world's location table
     py chestflags.py positions ISO chests.json  # chest positions for tracker pins
 """
 
@@ -83,15 +82,15 @@ def chest_table(ref_iso, script, discs):
 
 CYCLE_BITS = {1: 0x10, 2: 0x20, 3: 0x40}   # SPAWN_TBOX first field
 
-# Chests that can't be reached in some cycles (found by in-game testing)
-# even though their loot isn't empty there: {dungeon script: {chest: [cycles]}}.
+# Chests that can't be reached in some cycles even though their loot isn't
+# empty there (the game data doesn't show this): {dungeon script: {chest: [cycles]}}.
 UNREACHABLE = {
     "gob": {9: [1], 10: [1]},     # the upper-left ledge of area 2
     "water": {5: [1], 12: [1]},   # under water until it drops in year 5
 }
 
-# Chests that can be reached in a cycle whose vanilla loot slot is empty (found
-# by in-game testing); the patcher fills that slot like any other.
+# Chests that can be reached in a cycle whose vanilla loot slot is empty (the
+# game data doesn't show this either). The patcher fills that slot like any other.
 REACHABLE = {
     "kinoko": {6: [2], 8: [3]},
     "lava": {2: [1], 7: [1, 2], 8: [1]},
@@ -111,21 +110,21 @@ def canonical(iso, script, discs):
     """The dungeon's chests in the game's own order. Records that share a
     chest-opened flag are one chest (the same chest at alternative spots).
     Separate chests that share a loot case in vanilla always gave the same
-    item; _area_split() moves all but one of them to a loot case of their own,
+    item. _area_split() moves all but one of them to a loot case of their own,
     so each is its own location. Returns a list of dicts:
         chest   1..K for the vanilla chests, in order of each chest's lowest
-                flag; chests split off a shared case come after, as K+1...
-        area    area file number;  case = get_treasure case (A) the chest uses
-                after the split;  set = loot set index of its vanilla case
+                flag. Chests split off a shared case come after, as K+1...
+        area    area file number.  case = get_treasure case (A) the chest uses
+                after the split.  set = loot set index of its vanilla case
         flags   chest-opened flag numbers (B - 1)
         cycles  cycles the chest is a location in: it spawns (record cycle
                 bits) AND its vanilla loot in that cycle's slot (0/2/4, the
                 one AP seeds use) isn't empty, plus the REACHABLE list and
                 minus the UNREACHABLE list. Chests a player can't reach in
-                a cycle are left empty there in vanilla; this matches the
+                a cycle are left empty there in vanilla. This matches the
                 Game8 per-cycle chest counts exactly for 10 of 14 dungeons and
                 only ever under-counts elsewhere, except Veo Lu Sluice cycle 1
-                (2 more than Game8's 5 - needs an in-game check).
+                (2 more than Game8's 5).
         items   True if slots 0/2/4 can hold an item (treasure.py) - every
                 chest, gil-only ones included, since gil can be cleared
         gil     True for chests that give only gil in vanilla
@@ -212,14 +211,14 @@ def _spawn_calls(path, func_name, nargs):
 
 def _monster_drop_pushes(path):
     """[(file offset of E's PUSHI, E)] for every SPAWN (monster) record. E's
-    low 16 bits pick the get_treasure case; its top 4 bits (if set) mark the
+    low 16 bits pick the get_treasure case, and its top 4 bits (if set) mark the
     monster as a door-key carrier and are left alone."""
     return [(args[10][0], args[10][2]) for args in _spawn_calls(path, "SPAWN", 13) if args[10][1] == 3]
 
 
 def _chest_case_pushes(path):
     """[(file offset of A's PUSHI, mask, A, flag)] for every SPAWN_TBOX
-    (chest) record [mask, A, 0, B, x, y, z, rot]; flag = B - 1."""
+    (chest) record [mask, A, 0, B, x, y, z, rot], with flag = B - 1."""
     return [(args[1][0], args[0][2], args[1][2], args[3][2] - 1)
             for args in _spawn_calls(path, "SPAWN_TBOX", 8) if args[1][1] == 3]
 
@@ -231,8 +230,8 @@ def _sphere_cases(path):
 
 def _area_split(path):
     """{flag: new case} for the chests of one area file that share a loot case
-    with another chest. The chest with the lowest flag keeps the vanilla case;
-    each other one gets a case of its own: first one nobody uses, then one only
+    with another chest. The chest with the lowest flag keeps the vanilla case,
+    and each other one gets a case of its own: first one nobody uses, then one only
     monsters use (separate_monster_drops() moves those monsters away, since
     the case now belongs to a chest). Only cases whose cycle slots (0/2/4) can
     hold an item are used. Chests left over when no case is free stay shared."""
@@ -283,7 +282,7 @@ def separate_monster_drops(path, buf, extra_chest_cases=()):
     the same file with no artifacts in those slots - one with the same kind of
     loot (gil-only or not) if there is one, preferring the case most monsters
     already use. `path` is the vanilla area file (read for the analysis),
-    `buf` its bytes to edit in place; `extra_chest_cases` are cases that
+    `buf` its bytes to edit in place. `extra_chest_cases` are cases that
     chests use after a split (see _area_split). Returns [(old E, new E)]."""
     import collections
     import struct
@@ -345,41 +344,104 @@ def patch_map(iso, script, discs=None):
     return {(c["area"], c["set"]): c["chest"] for c in canonical(iso, script, discs) if c["items"]}
 
 
-def export(iso, out_path):
-    """Write the AP world's chest_table.py from the game files."""
+# Dungeons that are only played once (no Cycle 2/3 locations).
+SINGLE_CYCLE = {"Mount Vellenge"}
+YEARS = range(2, 11)          # "Year N Begins" locations
+
+
+def _location_rows(iso):
+    """Every AP location in table order: (name, dungeon, cycle, chest, flags).
+    Chests first (by dungeon, cycle, chest), then "Cycle N Reached" for each
+    dungeon's later cycles, then "Year N Begins"."""
     import lootcft as lc
+    chests, cycles_of = [], {}
+    for script, dungeon in lc.DUNGEONS:
+        rows = [c for c in canonical(iso, script, dungeon_discs(iso, script)) if c["items"]]
+        cycles = sorted({cy for c in rows for cy in c["cycles"]
+                         if not (dungeon in SINGLE_CYCLE and cy != 1)})
+        cycles_of[dungeon] = cycles
+        for cycle in cycles:
+            for c in rows:
+                if cycle in c["cycles"]:
+                    chests.append((f"{dungeon} - Cycle {cycle} - Chest {c['chest']}",
+                                   dungeon, cycle, c["chest"], tuple(c["flags"])))
+    events = [(f"{dungeon} - Cycle {cycle} Reached", dungeon, cycle, 0, ())
+              for dungeon, cycles in cycles_of.items() for cycle in cycles if cycle > 1]
+    years = [(f"Year {y} Begins", "Menu", y, 0, ()) for y in YEARS]
+    return chests + events + years
+
+
+def _previous_codes(path):
+    """{location name: AP code} from the chest_table.py at `path`, so codes
+    stay the same when the table is written again. The older format (CHESTS,
+    numbered in table order) gives the codes it was numbered with."""
+    import ast
+    if not os.path.exists(path):
+        return {}
+    tree = ast.parse(open(path, encoding="utf-8").read())
+    values = {t.id: n.value for n in tree.body if isinstance(n, ast.Assign)
+              for t in n.targets if isinstance(t, ast.Name)}
+    if "LOCATIONS" in values:
+        return {name: row[0] for name, row in ast.literal_eval(values["LOCATIONS"]).items()}
+    if "CHESTS" not in values:
+        return {}
+    old, names, cycles_of = ast.literal_eval(values["CHESTS"]), [], {}
+    for dungeon, rows in old.items():
+        cycles = sorted({cy for _, cys, _ in rows for cy in cys
+                         if not (dungeon in SINGLE_CYCLE and cy != 1)})
+        cycles_of[dungeon] = cycles
+        names += [f"{dungeon} - Cycle {cycle} - Chest {chest}"
+                  for cycle in cycles for chest, cys, _ in rows if cycle in cys]
+    names += [f"{dungeon} - Cycle {cycle} Reached"
+              for dungeon, cycles in cycles_of.items() for cycle in cycles if cycle > 1]
+    names += [f"Year {y} Begins" for y in YEARS]
+    return {name: code for code, name in enumerate(names)}
+
+
+def export(iso, out_path):
+    """Write the AP world's chest_table.py: every AP location, one per line.
+    A location already in the file keeps its code, and a new one gets the next
+    unused code, so adding a chest never changes the other locations' IDs."""
+    rows = _location_rows(iso)
+    codes = _previous_codes(out_path)
+    next_code = max(codes.values(), default=-1) + 1
+    for name, *_ in rows:
+        if name not in codes:
+            codes[name] = next_code
+            next_code += 1
+    width = max(len(repr(name)) for name, *_ in rows) + 1
     lines = ['"""',
-             "Generated by chestflags.py (Final-Fantasy-Crystal-Chronicles-Randomizer) from the",
-             "game files - regenerate instead of editing by hand.",
+             "Written by chestflags.py (Final-Fantasy-Crystal-Chronicles-Randomizer) from the",
+             "game files - regenerate instead of editing by hand:",
+             "    py chestflags.py export <clean.iso> <this file>",
              "",
-             "Chests are numbered in the game's own order (1..K per dungeon, by each",
-             "chest's lowest flag). Separate chests that shared a loot case in vanilla",
-             "are given their own case by the patcher and numbered after those (K+1...).",
-             "Several flags on one chest are the same chest at alternative spots.",
+             "Every AP location, one per line:",
+             "    name: (code, dungeon, cycle, chest, flags)",
              "",
-             "CHESTS[dungeon] = [(chest, cycles, flags), ...]",
-             "    flag n = bit n of the big-endian u32 chest-flag words at 0x80926000:",
-             "    byte 4*(n//32) + 3 - (n%32)//8, bit n%8",
-             "GIL_ONLY: chests that only give gil in vanilla (also locations; the",
-             "patcher clears their gil when it puts an item in).",
-             '"""', "", "CHESTS = {"]
-    gil_lines = ["", "GIL_ONLY = {"]
-    for script, name in lc.DUNGEONS:
-        rows = canonical(iso, script, dungeon_discs(iso, script))
-        lines.append(f"    {name!r}: [")
-        gil_lines.append(f"    {name!r}: [")
-        for c in rows:
-            row = f"        ({c['chest']}, {tuple(c['cycles'])}, {tuple(c['flags'])}),"
-            if c["items"]:
-                lines.append(row)
-            if c["gil"]:
-                gil_lines.append(f"        {c['chest']},")
-        lines.append("    ],")
-        gil_lines.append("    ],")
+             "code     the location's AP code (AP id = 2326528 + code). Regenerating keeps",
+             "         each location's code. New locations get the next unused one.",
+             "dungeon  the region it is in (\"Menu\" for the Year locations).",
+             "cycle    1-3 (for a \"Year N Begins\" location, the year).",
+             "chest    the chest's number in the game's own order: 1..K per dungeon by",
+             "         each chest's lowest flag, then chests that shared a loot case in",
+             "         vanilla and get their own from the patcher (K+1...). 0 = not a chest.",
+             "flags    the chest's \"opened\" flags: flag n is bit n of the big-endian",
+             "         32-bit words at 0x80926000, i.e. byte 4*(n//32) + 3 - (n%32)//8,",
+             "         bit n%8. Several flags are the same chest at alternative spots.",
+             '"""',
+             "",
+             "LOCATIONS = {"]
+    section = None
+    for name, dungeon, cycle, chest, flags in rows:
+        title = (dungeon if chest else
+                 "Cycle reached" if dungeon != "Menu" else "Year begins")
+        if title != section:
+            lines.append(f"    # {title}")
+            section = title
+        lines.append(f"    {repr(name) + ':':{width}} ({codes[name]}, {dungeon!r}, {cycle}, {chest}, {flags!r}),")
     lines.append("}")
-    gil_lines.append("}")
     with open(out_path, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines + gil_lines) + "\n")
+        f.write("\n".join(lines) + "\n")
 
 
 def export_positions(iso, out_path):

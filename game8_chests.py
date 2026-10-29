@@ -2,13 +2,13 @@
 resolver and a matcher that maps a dungeon script's loot SETS to chest numbers.
 
 Source: game8.co FFCC Remastered dungeon walkthroughs. Item names are resolved to
-IDs via ffcc_items; gil/empty entries are ignored.
+IDs via ffcc_items. Gil/empty entries are ignored.
 """
 import re
 import ffcc_items as I
 
 # Distinctive item names per chest (union across cycles). Keyed by dungeon name.
-# Only items that resolve to an ID matter for matching; gil/"empty" are skipped.
+# Only items that resolve to an ID matter for matching. Gil/"empty" are skipped.
 CHESTS = {
     "River Belle Path": {
         1: ["Cure"], 2: ["Bronze Belt", "Iron Shield", "Iron Belt", "Mythril Belt"],
@@ -127,7 +127,7 @@ CHESTS = {
     },
 }
 
-# script basename -> Game8 dungeon name (filled where confirmed; matcher can also auto-detect)
+# script basename -> Game8 dungeon name (filled where known, matcher can also auto-detect)
 SCRIPT_TO_DUNGEON = {
     "river": "River Belle Path", "gob": "Goblin Wall", "mine": "The Mine of Cathuriges",
     "kinoko": "The Mushroom Forest", "cave": "Selepation Cave", "water": "Veo Lu Sluice",
@@ -217,7 +217,7 @@ def reference_text(dungeon):
 
 def label_sets(parsed_sets, dungeon):
     """Return {set_index: chest_number}. A set is labeled with the chest whose
-    distinctive (non-generic) items it best contains; generic-only chests
+    distinctive (non-generic) items it best contains. Generic-only chests
     (single magicite/Phoenix) are matched only if no specific chest fits."""
     cs = chest_id_sets(dungeon)
     labels = {}
@@ -256,7 +256,7 @@ def label_sets(parsed_sets, dungeon):
     # pass 3: weaker single-item match for chests STILL unmatched (e.g. small
     # scroll chests like Faerie Kit/Angel Kit whose two items split across sets).
     # Each remaining chest claims the unlabeled set holding the most of its
-    # distinctive items; items UNIQUE to one chest count double so a chest grabs
+    # distinctive items. Items UNIQUE to one chest count double so a chest grabs
     # the set that really implies it (and we avoid generic magicite via _specific).
     import collections
     item_chests = collections.defaultdict(set)

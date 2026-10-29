@@ -94,7 +94,7 @@ def find_file(files, disc_path):
 def dol_span(f):
     """Return (offset, size) of the disc's boot executable (main.dol / Start.dol).
     It is NOT part of the FST - it's a separate blob referenced by boot.bin's
-    dolOffset field at 0x420. Size isn't stored either; it's computed from the
+    dolOffset field at 0x420. Size isn't stored either, it's computed from the
     DOL's own header (7 text + 11 data section file-offset/size pairs) as the
     highest (offset + size) among all present sections."""
     f.seek(0x420)
@@ -206,7 +206,7 @@ def cmd_inject_dol(iso, src):
 
 
 def _fst_entries(data):
-    """Like parse_fst but on an in-memory disc image; also returns each file's
+    """Like parse_fst but on an in-memory disc image. Also returns each file's
     FST entry index (so we can rewrite its offset/size). Returns
     (fst_off, fst_sz, n_entries, [(path, off, size, entry_idx), ...])."""
     fst_off = struct.unpack(">I", data[0x424:0x428])[0]
@@ -240,7 +240,7 @@ def _fst_entries(data):
 def rebuild_iso(iso_in, edits, iso_out, align=0x20):
     """Write iso_out = iso_in with each edited file RESIZED. `edits` maps a disc
     path -> replacement bytes (any size). Strategy: APPEND each edited file at the
-    end of the image and repoint its FST entry; every other file stays byte-for-
+    end of the image and repoint its FST entry. Every other file stays byte-for-
     byte at its original offset (no ripple). Lets files grow or shrink. The old
     data of edited files is left as harmless dead space.
 
@@ -279,6 +279,123 @@ def rebuild_iso(iso_in, edits, iso_out, align=0x20):
     with open(iso_out, "wb") as f:
         f.write(data)
     return changes
+
+
+def put_file(iso, disc_path, content, align=0x20):
+    """Replace a file of the disc in place, at any size. A file that still fits
+    in its old space is written there, a bigger one is appended to the end of
+    the image. Either way its file-table entry gets the new offset and size."""
+    content = bytes(content)
+    with open(iso, "r+b") as f:
+        game_id, fst_off, fst_sz = read_header(f)
+        f.seek(fst_off)
+        fst = f.read(fst_sz)
+        _, _, _, files = _fst_entries(fst_header(fst_off, fst_sz) + fst)
+        want = norm(disc_path)
+        hit = [(p, off, size, idx) for p, off, size, idx in files if norm(p) == want]
+        if not hit:
+            raise ValueError(f"{disc_path} is not on the disc")
+        _, off, size, idx = hit[0]
+        if len(content) > size:
+            f.seek(0, 2)
+            off = (f.tell() + align - 1) // align * align
+            f.seek(off)
+            f.write(content)
+            end = f.tell()
+            f.write(b"\x00" * ((end + 0x7FFF) // 0x8000 * 0x8000 - end))
+        else:
+            f.seek(off)
+            f.write(content)
+        f.seek(fst_off + idx * 12 + 4)
+        f.write(struct.pack(">II", off, len(content)))
+
+
+def fst_header(fst_off, fst_sz):
+    """A fake disc header that puts the FST right after it, for _fst_entries."""
+    hdr = bytearray(0x440)
+    struct.pack_into(">II", hdr, 0x424, 0x440, fst_sz)
+    return bytes(hdr)
+
+
+def add_file(iso, disc_path, content, align=0x20):
+    """Add a NEW file to an existing directory of the disc, in place. The
+    file's data and a rebuilt file table (FST) are appended to the end of the
+    image, and the disc header is pointed at the new table. Nothing else moves.
+    If the file is already there with the same size, it is overwritten instead.
+
+    The FST lists a directory's files right after the directory entry, and a
+    directory entry stores the index just past its last file, so the new entry
+    is inserted at the end of its directory and every index after it moves up
+    by one. File names are stored as offsets into a string table, which only
+    gains the new name at its end."""
+    content = bytes(content)
+    folder, _, name = norm(disc_path).rpartition("/")
+    with open(iso, "r+b") as f:
+        _, files = parse_fst(f)
+        hit = find_file(files, disc_path)
+        if hit:
+            _, off, size = hit[0]
+            if size != len(content):
+                raise ValueError(f"{disc_path} is already on the disc with another size")
+            f.seek(off)
+            f.write(content)
+            return False
+
+        _, fst_off, fst_sz = read_header(f)
+        f.seek(fst_off)
+        fst = bytearray(f.read(fst_sz))
+        n = struct.unpack(">I", fst[8:12])[0]
+        entries = [bytearray(fst[i * 12:i * 12 + 12]) for i in range(n)]
+        strings = bytearray(fst[n * 12:])
+
+        # find the directory entry for `folder`
+        def entry_name(e):
+            noff = struct.unpack(">I", b"\x00" + e[1:4])[0]
+            return strings[noff:strings.index(b"\x00", noff)].decode("ascii").lower()
+
+        path_of, stack = {}, [(n, "")]
+        for i in range(1, n):
+            while i >= stack[-1][0]:
+                stack.pop()
+            if entries[i][0] == 1:
+                path = stack[-1][1] + entry_name(entries[i])
+                path_of[path] = i
+                stack.append((struct.unpack(">I", entries[i][8:12])[0], path + "/"))
+        if folder not in path_of:
+            raise ValueError(f"{folder!r} is not a directory on the disc")
+        insert_at = struct.unpack(">I", entries[path_of[folder]][8:12])[0]
+
+        # every directory index at or past the insert point moves up by one
+        for i, e in enumerate(entries):
+            if e[0] == 1 or i == 0:
+                parent, end = struct.unpack(">II", e[4:12])
+                if i != 0 and parent >= insert_at:
+                    parent += 1
+                if end >= insert_at:
+                    end += 1
+                e[4:12] = struct.pack(">II", parent, end)
+
+        f.seek(0, 2)
+        data_off = (f.tell() + align - 1) // align * align
+        name_off = len(strings)
+        strings += name.encode("ascii") + b"\x00"
+        new = bytearray(struct.pack(">I", name_off)) + struct.pack(">II", data_off, len(content))
+        new[0] = 0                                   # file entry
+        entries.insert(insert_at, new)
+
+        new_fst = b"".join(entries) + strings
+        fst_new_off = (data_off + len(content) + align - 1) // align * align
+        f.seek(data_off)
+        f.write(content)
+        f.seek(fst_new_off)
+        f.write(new_fst)
+        # pad like rebuild_iso does, so reads near the end don't run past EOF
+        end = f.tell()
+        tail = (end + 0x7FFF) // 0x8000 * 0x8000
+        f.write(b"\x00" * (tail - end))
+        f.seek(0x424)
+        f.write(struct.pack(">III", fst_new_off, len(new_fst), len(new_fst)))
+    return True
 
 
 def cmd_rebuild(iso, disc_path, src, out=None):

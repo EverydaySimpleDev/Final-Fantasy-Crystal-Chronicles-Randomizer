@@ -6,7 +6,7 @@ parse a model into a Node tree, edit it, and serialize byte-for-byte.
 
 Each tag = 16-byte header [4 type][4 big-endian length][8 mystery] then `length`
 bytes of content, then zero-padding up to the next 16-byte boundary. Content is
-an ordered mix of child tags and raw byte runs; we preserve that order and the
+an ordered mix of child tags and raw byte runs. We preserve that order and the
 trailing pad so an unmodified tree re-serializes identically.
 """
 
@@ -66,7 +66,7 @@ class Node:
     def serialize(self):
         body = self.content()
         # Keep the original pad bytes if content size is unchanged (byte-exact
-        # round-trip); otherwise recompute zero-padding to the 16-byte boundary.
+        # round-trip), otherwise recompute zero-padding to the 16-byte boundary.
         # Pad length depends only on content length (each tag starts 16-aligned).
         if len(body) == self._clen:
             pad = self.pad
@@ -102,7 +102,7 @@ class Node:
 
 
 # --------------------------------------------------------------------------- #
-# geometry accessors (VERT / NORM = int16 x,y,z triples; UV = int16 u,v)
+# geometry accessors (VERT / NORM = int16 x,y,z triples, UV = int16 u,v)
 # --------------------------------------------------------------------------- #
 def set_content(node, data):
     """Replace a leaf tag's raw content (e.g. an edited VERT block)."""

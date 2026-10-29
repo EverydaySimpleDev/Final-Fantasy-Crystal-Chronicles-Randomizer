@@ -3,7 +3,7 @@ worldzones.py - EXPERIMENTAL: shuffle which dungeon each world-map node leads to
 
 A "node" is a dungeon's spot on the world map (named here by the dungeon that
 sits there in vanilla). Putting dungeon D on node N changes, all in place
-(same file sizes, NTSC-US, offsets verified against the disc):
+(same file sizes, NTSC-US):
 
   world.cft  mainBasha, node N:
                display block  WM_mapInfoDispOn args (D's name/Myrrh bubble, elements)
@@ -18,7 +18,7 @@ sits there in vanilla). Putting dungeon D on node N changes, all in place
 
 What stays with the node: its MJ_SWING variant, the elements offered after a
 Myrrh drop, and anything that gates reaching it (Miasma Streams, Goblin
-Wall's Year-2 visibility). So the element progression stays like vanilla;
+Wall's Year-2 visibility). So the element progression stays like vanilla,
 only which dungeon you enter changes.
 
 Mount Kilanda (entered through several 4-argument MJ_SWING calls, and its
@@ -125,7 +125,7 @@ SLUICE_NODES = ("river", "gob", "mine", "kinoko", "ruin", "gigas", "water")
 
 
 def random_plan(rng, fixed=None):
-    """Shuffle all 12 dungeons over the 12 nodes; `fixed` placements are kept.
+    """Shuffle all 12 dungeons over the 12 nodes. `fixed` placements are kept.
     Veo Lu Sluice always lands on one of SLUICE_NODES (unless `fixed` puts it
     somewhere else)."""
     fixed = dict(fixed or {})
@@ -145,7 +145,7 @@ def random_plan(rng, fixed=None):
 
 def normalize(spec):
     """{node (dungeon name or script): dungeon (name or script)} -> {node script:
-    dungeon script}; entries that name the node's own dungeon are dropped."""
+    dungeon script}. Entries that name the node's own dungeon are dropped."""
     def key(v):
         v = str(v).strip()
         if v.lower() in DUNGEONS:
@@ -296,8 +296,8 @@ def apply_plan(iso, plan, log=None):
 # Start.dol's crest table (also used by the save screen) holds each place's
 # cell as [plate, col, row, 0], indexed by the dungeon's display index DD.
 # Changing a stop's building = shifting its part's UVs to another cell (and
-# switching the material if the cell is on the other plate). Same file size.
-# Confirmed in game (e.g. Tipa's stop showing River Belle Path's art).
+# switching the material if the cell is on the other plate). Same file size,
+# e.g. Tipa's stop showing River Belle Path's art.
 # ---------------------------------------------------------------------------
 
 WORLD_MPL = "dvd/map/stg033/map000_0.mpl"

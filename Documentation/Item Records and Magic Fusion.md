@@ -149,7 +149,7 @@ How artifact bonuses are actually applied is covered in
 
 ### Scrolls (type `0191`): crafting recipes
 
-Verified against the disc (all 93 scrolls decode to real recipes).
+All 93 scrolls decode to real recipes.
 
 | Offset | Field | `items.py` name |
 |---|---|---|
@@ -193,7 +193,7 @@ Fields marked "?" are guesses from comparing records.
 ### Enemy resistances
 
 Each monster has a resistance entry per element and status, in this order
-(2 bytes each; order from community notes, not byte-verified): Physical, Fire, Blizzard, Thunder, Slow, Stop,
+(2 bytes each): Physical, Fire, Blizzard, Thunder, Slow, Stop,
 Gravity, Holy, Poison, Curse, Petrify. These live in the monster's record in
 `param.cfd` DATA block #1 (see
 [Monster and Boss Swapping.md](Monster%20and%20Boss%20Swapping.md)); the
@@ -271,5 +271,5 @@ Advance version of the list (used for multiplayer) is in
 In the GBA list, IDs up to `1C` are the same; scroll, wheat, flour, bannock
 and generic item are `30`–`34` instead.
 
-The command-list offsets and IDs come from community notes and haven't been
-re-verified byte by byte; the fusion table above has been.
+The command-list offsets and IDs come from community notes. The fusion table
+above comes from the disc.

@@ -9,7 +9,7 @@ round-trip is byte-identical and an edit changes only the moved data.
 
 LIMITATION: topology must be UNCHANGED - same vertex / UV / normal COUNT and
 ORDER as the export (the model's faces/display-lists still reference the original
-indices). So: move/scale/morph existing vertices = OK; add/remove/reorder vertices
+indices). So: move/scale/morph existing vertices = OK, add/remove/reorder vertices
 or new meshes = not supported by `import` (use `newmesh`). In Blender, import/export
 OBJ with matching axis settings (Forward Z, Up Y) and DON'T let it merge/reorder
 vertices ("Keep Vertex Order").
@@ -209,7 +209,7 @@ def import_mesh(chm_path, obj_path, out_path=None, mesh_index=0, strips=False, f
                                            _clamp(round(z/scale), "n", warns)) for x, y, z in vn])
     chmio.write_uvs(m.find(b"UV  "), [(_clamp(round(u*4096), "u", warns),
                                        _clamp(round(w*4096), "v", warns)) for u, w in vt])
-    # fresh DLST: keep the mesh's material index; OBJ corner (pos,uv,norm) 1-based
+    # fresh DLST: keep the mesh's material index. OBJ corner (pos,uv,norm) 1-based
     # -> CHM vertex tuple (pos, norm, color=0, uv) 0-based
     dlhd = m.find(b"DLHD")
     old = dlhd.find(b"DLST")

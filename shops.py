@@ -31,7 +31,7 @@ SHOPS = {
 }
 
 # One shop slot: push(1), push(item id, high bytes always 0000), push(0).
-# The 2-byte item id is the capture group; its file offset is match.start()+8.
+# The 2-byte item id is the capture group. Its file offset is match.start()+8.
 _SLOT_RE = re.compile(rb"\x03\x00\x00\x00\x01\x03\x00\x00(..)\x03\x00\x00\x00\x00", re.DOTALL)
 
 

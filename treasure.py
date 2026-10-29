@@ -3,7 +3,7 @@ treasure.py - read and write individual get_treasure slots, and make the
 slot a chest rolls deterministic.
 
 get_treasure(case) is a switch on the case number (a chest's SPAWN_TBOX A,
-low 16 bits); inside, a switch on a slot 0-7. Each slot assigns four drop
+low 16 bits), and inside it a switch on a slot 0-7. Each slot assigns four drop
 entries var2..var5 (SPAWN_TBOX copies them into the chest's 4 drop codes).
 Each entry is an item ID, gil (0x4000 | amount - sometimes a small
 expression, e.g. 0x4000 + (25 or 25 * players)) or 0. Which entry holds the
@@ -73,7 +73,7 @@ def case_slots(data, lo, hi):
 def slot_drops(data, lo, hi):
     """{slot: [("gil", amount) | ("item", item ID), ...]} - what each slot of
     the case at data[lo:hi] gives, one entry per non-empty var2..var5. Gil is
-    0x4000 | amount (the amount may be scaled by the player count; the
+    0x4000 | amount (the amount may be scaled by the player count, and the
     single-player value is reported)."""
     body = data[lo:hi]
     heads = [(m.group(1)[0], m.start()) for m in INNER.finditer(body)][1:]
@@ -124,7 +124,7 @@ def getidxset_sites(path):
 
 
 def patch_getidxset(buf, path):
-    """rand(4) -> rand(1) in getIdxSet; returns how many sites are now patched."""
+    """rand(4) -> rand(1) in getIdxSet. Returns how many sites are now patched."""
     sites = getidxset_sites(path)
     if len(sites) != 3:
         raise ValueError(f"{path}: expected 3 rand ranges in getIdxSet, found {len(sites)}")

@@ -9,32 +9,32 @@ Builds on the existing tooling:
 WHAT A CHEST RECORD ACTUALLY IS
 -------------------------------
 Each treasure slot is a 0x5b-byte script record in get_treasure(). The ONLY
-per-item field is a single push-int at record+0 holding the item ID; the rest of
-the record is identical regardless of the item's category (verified by diffing
-Material / Food / Phoenix Down / Artifact / Magicite / Recipe records byte for
-byte - they differ only in that one ID and a positional counter). So putting ANY
-item in ANY chest is a single 16-bit edit; the "categories must match" rule in
+per-item field is a single push-int at record+0 holding the item ID. The rest of
+the record is identical regardless of the item's category (Material / Food /
+Phoenix Down / Artifact / Magicite / Recipe records differ only in that one ID
+and a positional counter). So putting ANY
+item in ANY chest is a single 16-bit edit. The "categories must match" rule in
 the older tools is a safety convention, not a hard engine constraint.
 
-WHAT ACTUALLY DROPS (confirmed on emulator)
---------------------------------------------
+WHAT ACTUALLY DROPS
+-------------------
 Cross-category never crashes, but only "droppable" item classes are granted by
-the chest pickup path. Confirmed by testing River Belle Path:
+the chest pickup path:
     DROPPABLE : Artifact (0x9f-0xe7), Magicite (real stones only),
                 Phoenix Down (0x125), Material (0x126-0x172),
                 Food (0x17d-0x18e), Recipe/Scroll (0x191-0x1ed)
     NOT DROP. : craftable EQUIPMENT - Weapon/Armor/Shield/Gauntlet/Helmet/
                 Belt/Accessory (0x01-0x9e). The chest opens but gives nothing.
-This is exactly the set vanilla chests ever contain; equipment is obtained by
+This is exactly the set vanilla chests ever contain. Equipment is obtained by
 crafting recipes, so the engine has no path to hand it out from a box. The
 chest's *original* category is irrelevant - only the new item's class matters.
 
 Also avoid Unused/Test IDs and anything past 0x01ed (focus attacks, raw spells,
-enemy skills); e.g. "Stone of Holy" 0x108 looks like magicite but does not drop.
+enemy skills). For example, "Stone of Holy" 0x108 looks like magicite but does not drop.
 This randomizer only ever writes IDs from the curated droppable pool below.
 
 USAGE
-    # make a copy of your ISO first; this writes in place
+    # make a copy of your ISO first, this writes in place
     python randomizer.py list    "Hacked Rom.iso"          # show dungeons found
     python randomizer.py preview "Hacked Rom.iso" --seed 1 # dry run, prints diff
     python randomizer.py run     "Hacked Rom.iso" --seed 1 # randomize + inject
@@ -44,8 +44,8 @@ USAGE
     python randomizer.py patch   "Hacked Rom.iso" edits.json           # apply a chest JSON
 
 The JSON (see `export` output) maps dungeon-script -> set-index -> cycle(1-3) ->
-item; edit it and `patch` to set exactly those contents. Items may be a name,
-"0xID", or "Name [0xID]"; a cycle value can be a list to spread across its slots.
+item. Edit it and `patch` to set exactly those contents. Items may be a name,
+"0xID", or "Name [0xID]". A cycle value can be a list to spread across its slots.
 
 OPTIONS
     --seed N        reproducible result (default: time-based)
@@ -56,8 +56,8 @@ OPTIONS
                     chest    : one item for the whole chest (fully predictable)
     --pool POOL     all (default) | artifact | magicite | consumable | recipe
     --max-artifacts N  cap artifacts per dungeon per cycle (default 4 = the
-                    in-game carry limit); excess chests get a non-artifact item
-    --chests-only   randomize only chests, not enemy drops (needs --ref); enemy
+                    in-game carry limit). Excess chests get a non-artifact item
+    --chests-only   randomize only chests, not enemy drops (needs --ref). Enemy
                     drops share the get_treasure pool, so this isolates the
                     Game8-identified chest sets and leaves the rest untouched
     --dungeon NAME  restrict to one dungeon script (e.g. river) - repeatable
@@ -81,22 +81,21 @@ import items as itemstats          # param.cfd reader/writer (prices live here)
 
 VALID_LO, VALID_HI = 0x001, 0x1ed   # collectible-item ID window
 
-# Item categories a chest can actually hand out (confirmed on emulator).
+# Item categories a chest can actually hand out.
 # Craftable equipment is intentionally absent: chests open but give nothing.
 DROPPABLE_CATS = {"Artifact", "Magicite", "PhoenixDown", "Material", "Food", "Recipe"}
 
 # IDs inside the droppable categories that are still Unused / Test / unimple-
-# mented and must never be placed (from community item ID lists plus
-# emulator testing).
+# mented and must never be placed.
 EXCLUDE = set()
 EXCLUDE |= {0x156, 0x160, 0x161, 0x170}                   # unused materials
 # (0x162 was here too, but it's now repurposed as the custom "AP Item" - a real,
-#  placeable Material with Gold's model; see ffcc_items NAMES[0x162].)
+#  placeable Material with Gold's model. See ffcc_items NAMES[0x162].)
 EXCLUDE |= set(range(0x173, 0x17d))                       # Extra 24-33
 EXCLUDE |= set(range(0x189, 0x191))                       # unused shards / trade fillers
-# Magicite: only these stones are real, droppable drops; the rest of
+# Magicite: only these stones are real, droppable drops. The rest of
 # 0x100-0x124 are spell internals or unimplemented (e.g. 0x108 "Holy" does NOT
-# drop - confirmed in-game).
+# drop).
 MAGICITE_OK = {0x100, 0x101, 0x102, 0x105, 0x106, 0x107}
 EXCLUDE |= {v for v in range(0x100, 0x125) if v not in MAGICITE_OK}
 
@@ -212,8 +211,8 @@ def _extract(iso, disc, dst):
 
 def _slot_groups(n, rolls):
     """Map each slot index 0..n-1 to a group key. Slots sharing a key all get
-    the same randomized item. rolls: 'slot' = every slot its own item;
-    'cycle' = one item per cycle (slots grouped by their primary/earliest cycle);
+    the same randomized item. rolls: 'slot' = every slot its own item,
+    'cycle' = one item per cycle (slots grouped by their primary/earliest cycle),
     'chest' = one item for the whole chest."""
     if rolls == "slot":
         return list(range(n))
@@ -236,14 +235,14 @@ def _pick_nonart(rng, base, mode, nonart):
 # e.g. city_0 sets 7-13 = Fire/Blizzard/Thunder/Cure/Life/Clear/mixed) are
 # never randomized or used for stage keys. Every dungeon has these sets.
 #  - "holy": the boss takes 1 damage until hit with Holy. Holy isn't a
-#    droppable stone (0x108 never drops); it's cast by fusing Fire/Blizzard/
+#    droppable stone (0x108 never drops). It's cast by fusing Fire/Blizzard/
 #    Thunder THEN Stone of Life (Start.dol fusion table - Life first gives
 #    Slow). Follows Lich / Zombie Dragon when the boss shuffle moves them.
 #  - "fire": the path is blocked by something only Fire clears (Tida's
 #    spider webs).
 HOLY_BOSS_DUNGEONS = {"city": "Lich", "swamp": "Zombie Dragon"}
 FIRE_DUNGEONS = {"ruin": "Tida's spider webs"}
-# script -> (need, reason); the default when bosses aren't moved
+# script -> (need, reason), the default when bosses aren't moved
 STONE_DUNGEONS = {**{k: ("holy", v) for k, v in HOLY_BOSS_DUNGEONS.items()},
                   **{k: ("fire", v) for k, v in FIRE_DUNGEONS.items()}}
 STONE_OF_FIRE = 0x100
@@ -314,7 +313,7 @@ def randomize_dungeon(iso, script, discs, rng, mode, pool, fill_empty, apply, ro
                       max_artifacts=4, only_by_disc=None, holy_dungeons=STONE_DUNGEONS):
     """Randomize all area files of one dungeon, enforcing at most `max_artifacts`
     artifacts per cycle ACROSS the whole dungeon (one shared tally). `only_by_disc`
-    (dict disc -> set of chest set indices) restricts to chests; None = everything.
+    (dict disc -> set of chest set indices) restricts to chests, None = everything.
     Dungeons in `holy_dungeons` (see STONE_DUNGEONS) keep their magicite sets,
     so the stones they need stay obtainable.
     Returns [(area_no, set_index, slot_index, old_id, new_id)]."""
@@ -333,7 +332,7 @@ def randomize_dungeon(iso, script, discs, rng, mode, pool, fill_empty, apply, ro
 def check_stone_access(iso, stone_dungeons=STONE_DUNGEONS):
     """After all patching: for each dungeon in `stone_dungeons` ({script:
     (need, reason)}), confirm its areas still have the stones it needs -
-    "holy": a set that is all Stone of Life plus a set with an element stone;
+    "holy": a set that is all Stone of Life plus a set with an element stone, and
     "fire": a set with a Stone of Fire. Returns problem strings (empty = OK)."""
     problems = []
     for script, friendly, discs in dungeons_in_iso(iso):
@@ -469,12 +468,12 @@ def randomize_shops(iso, rng, only=None, apply=True, pool=None):
 # game.h): m_bonusConditions[16] (0x00-0x20, unrelated per-spawn data),
 # m_entries (0x20-0x160: 40x 8-byte entries, but only the first 8 -
 # m_prefixEntries - are the actual random reward pool CGame::GetBossArtifact
-# picks from; the other 32 are unrelated per-food/status data), then
+# picks from, the other 32 are unrelated per-food/status data), then
 # m_rankThresholds[4] (0x160-0x168, the score-tier cutoffs shown in-game as
 # the point requirements). Each of the 8 reward entries holds 4 item ids
 # (m_values[4], 2 bytes each) - 32 real item-id slots per dungeon.
-# Block offsets were located via each dungeon's m_rankThresholds pattern and
-# verified against a retail newbattle.cfd.
+# Block offsets are for the retail newbattle.cfd, found via each dungeon's
+# m_rankThresholds pattern.
 NEWBATTLE_ENTRY_COUNT = 8      # m_prefixEntries[8] - the real reward pool
 NEWBATTLE_ENTRY_SIZE = 8       # m_values[4], 2 bytes each
 NEWBATTLE_BLOCKS = {           # dungeon script -> its CBossArtifactStage file offset
@@ -495,7 +494,7 @@ def _newbattle_disc(iso):
 def randomize_bonus_pools(iso, rng, mode="cross", pool=None, apply=True):
     """Randomize the post-stage bonus-reward item pool (newbattle.cfd) for
     every dungeon that has one (see NEWBATTLE_BLOCKS). `pool`: candidate item
-    ids (from build_pool()); `mode`: 'category' or 'cross', same semantics as
+    ids (from build_pool()). `mode`: 'category' or 'cross', same semantics as
     chest randomization (pick()). Score thresholds are left untouched - only
     which items can be rewarded changes. Returns [(script, entry, value, old,
     new)] for every slot actually changed."""
@@ -610,6 +609,69 @@ def set_bonus_pool(iso, script, entries, apply=True):
     return set_bonus_pools(iso, {script: entries}, apply=apply).get(script, [])
 
 
+def read_bonus_thresholds(iso):
+    """{script: (4 score thresholds)} for every dungeon with a bonus-pool block.
+    The game compares the party's bonus points, scaled by player count (x1.35
+    solo, x1.25, x1.1, x1.0 for 2-4 players), against these."""
+    disc = _newbattle_disc(iso)
+    if disc is None:
+        return {}
+    tmp = os.path.join(tempfile.gettempdir(), "nb_thr_" + os.path.basename(disc))
+    _extract(iso, disc, tmp)
+    data = open(tmp, "rb").read()
+    return {script: tuple(int.from_bytes(data[start + 0x160 + 2 * i:start + 0x162 + 2 * i], "big")
+                          for i in range(4))
+            for script, start in NEWBATTLE_BLOCKS.items()}
+
+
+def export_bonus_table(iso, out_path):
+    """Write the AP world's bonus_table.py: each dungeon's bonus thresholds and
+    vanilla bonus pool, the items a randomized slot can get, and item names."""
+    import lootcft
+    pools, thresholds = read_bonus_pools(iso), read_bonus_thresholds(iso)
+    names = dict(lootcft.DUNGEONS)
+    candidates = build_pool("all")
+    used = set(candidates)
+    lines = ['"""',
+             "Written by randomizer.py (Final-Fantasy-Crystal-Chronicles-Randomizer) from the",
+             "game files - regenerate instead of editing by hand:",
+             "    py randomizer.py export-bonus <clean.iso> <this file>",
+             "",
+             "The end-of-dungeon bonus (newbattle.cfd). Each dungeon has 8 reward entries",
+             "of 4 items. The game offers entry (cycle start + tier): cycle start is",
+             "0 / 2 / 4 for Cycles 1 / 2 / 3, tier is 0-3 by the party's score, and the",
+             "player picks one of the entry's 4 items. A tier is reached when the bonus",
+             "points times the player-count factor (x1.35 solo, x1.25, x1.1, x1.0 for",
+             "2-4 players) are at least its threshold.",
+             "",
+             "BONUS_TABLE[dungeon] = (thresholds, entries)",
+             "BONUS_CANDIDATES = the items a randomized slot can get.",
+             '"""',
+             "",
+             "BONUS_TABLE = {"]
+    for script, entries in pools.items():
+        lines.append(f"    {names[script]!r}: ({thresholds[script]!r}, (")
+        for ei in range(NEWBATTLE_ENTRY_COUNT):
+            values = entries[ei]
+            used.update(values)
+            ids = ", ".join(f"0x{v:03x}" for v in values)
+            label = ", ".join(items.NAMES.get(v, hex(v)) for v in values)
+            lines.append(f"        ({ids}),   # {ei}: {label}")
+        lines.append("    )),")
+    lines.append("}")
+    cand = ["", "BONUS_CANDIDATES = ("]
+    for k in range(0, len(candidates), 10):
+        cand.append("    " + ", ".join(f"0x{v:03x}" for v in candidates[k:k + 10]) + ",")
+    cand.append(")")
+    item_names = ["", "ITEM_NAMES = {"]
+    for v in sorted(used):
+        if v in items.NAMES:
+            item_names.append(f"    0x{v:03x}: {items.NAMES[v]!r},")
+    item_names.append("}")
+    with open(out_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines + cand + item_names) + "\n")
+
+
 def _param_disc(iso):
     with open(iso, "rb") as f:
         _, files = gciso.parse_fst(f)
@@ -640,7 +702,7 @@ def read_prices(iso):
 def randomize_prices(iso, rng, apply=True, pool=None):
     """Shuffle the price (gil) field among the items shops actually sell - the
     same set of real prices, reassigned to different items (so prices stay
-    realistic and valid; the 0xFFFF "not for sale" sentinel and unsold items are
+    realistic and valid, and the 0xFFFF "not for sale" sentinel and unsold items are
     left alone). `pool` = item ids to shuffle among (default: items currently
     stocked by shops). Returns the number of items whose price changed."""
     disc = _param_disc(iso)
@@ -693,10 +755,9 @@ def patch_mog_never_tired(iso, apply=True):
     running with the chalice, removing the 'gets tired and drops it' penalty
     entirely. Single-instruction change in `CGPartyObj::gpmMove()`'s
     fast-movement branch (`li r4,2` -> `li r4,0`, so the `+= delta` there adds
-    zero instead of 2/frame). Verified against the retail NTSC-US `main.dol`
-    (file offset 0x109bd4 = RAM 0x80119e34, cross-checked via the DOL's own
-    section headers). Returns True once the patch is present (freshly applied
-    or already there); raises if the ISO's bytes there don't match either the
+    zero instead of 2/frame). Site in the retail NTSC-US `main.dol`: file
+    offset 0x109bd4 = RAM 0x80119e34. Returns True once the patch is present
+    (freshly applied or already there). Raises if the ISO's bytes there don't match either the
     vanilla original or the patched form (wrong game version)."""
     with open(iso, "r+b" if apply else "rb") as f:
         off, _ = gciso.dol_span(f)
@@ -713,7 +774,7 @@ def patch_mog_never_tired(iso, apply=True):
     return True
 
 
-# Starting-location patch (byte-verified): a new game's opening camera focus (farewell_0.cft) and the caravan's actual
+# Starting-location patch: a new game's opening camera focus (farewell_0.cft) and the caravan's actual
 # initial spawn point (ffcc_5.cft) each read a dynamic/persisted value that
 # currently always resolves to Tipa. Replacing that 5-byte read with a
 # hardcoded `PUSHI <id>` forces a specific town instead. Only destinations
@@ -740,7 +801,7 @@ def _patch_pushi_id(iso, disc, offset, orig, new_id, apply):
     within `disc` with `PUSHI <new_id>` (`03 00 00 00 <new_id>`). Accepts
     either the true vanilla bytes or an already-applied `PUSHI <anything>` at
     that same site (so re-picking a different location on top of a
-    previously patched copy still works); raises on anything else."""
+    previously patched copy still works). Raises on anything else."""
     tmp = os.path.join(tempfile.gettempdir(), "startloc_" + os.path.basename(disc))
     size = _extract(iso, disc, tmp)
     data = bytearray(open(tmp, "rb").read())
@@ -760,6 +821,117 @@ def _patch_pushi_id(iso, disc, offset, orig, new_id, apply):
             _, off, _ = gciso.find_file(files, disc)[0]
             f.seek(off)
             f.write(bytes(data))
+
+
+# Magicite needs its ring (Start.dol, NTSC-US). A magicite can only go into the
+# command list once the player owns the matching ring in the permanent artifact
+# list: Fire 0x100 -> Ring of Fire, Blizzard 0x101 -> Ring of Blizzard,
+# Thunder 0x102 -> Ring of Thunder, Cure 0x105 -> Ring of Cure, Life 0x107 ->
+# Ring of Life (artifact places 0x40-0x44, i.e. caravan +0x136 + 2 * place).
+# Other items are not affected. Two code paths add magicite, so there are two
+# hooks, each a branch into new code written in unused space of the debugger's
+# interrupt table (gTRKInterruptVectorTable, as the trap-visuals patch does):
+#   pickup:  the item-pickup dispatcher in gobjwork.o, hook 0x8012212c, code
+#            at 0x800034dc. Without the ring it takes the game's own
+#            "can't add" exit.
+#   menu:    CCaravanWork::ChgCmdLst, hook 0x800a1a08, code at 0x800035b0.
+#            Without the ring the menu change does nothing.
+# (file offset, original bytes, new bytes), offsets inside Start.dol.
+MAGICITE_RING_PATCHES = [
+    (0x111ecc, bytes.fromhex("2c04009f"), bytes.fromhex("4bee13b0")),   # b 0x800034dc
+    (0x4dc, bytes(116), bytes.fromhex(
+        "2c040100" "41820028" "2c040101" "41820028" "2c040102" "41820028"
+        "2c040105" "41820028" "2c040107" "41820028" "48000044"
+        "38c00040" "48000020" "38c00041" "48000018" "38c00042" "48000010"
+        "38c00043" "48000008" "38c00044"
+        "807f0058" "54c6083c" "7cc33214" "a8060136" "2c00ffff" "40820008"
+        "4811ec94"                      # b 0x801221d8, the game's "can't add" exit
+        "2c04009f"                      # the instruction the hook replaced
+        "4811ebe4")),                   # b 0x80122130, back after the hook
+    (0x917a8, bytes.fromhex("7cdf0214"), bytes.fromhex("4bf61ba8")),    # b 0x800035b0
+    (0x5b0, bytes(136), bytes.fromhex(
+        "2c050000" "41800078" "54a7083c" "7cff3a14" "a8e700b6"
+        "2c070100" "41820028" "2c070101" "41820028" "2c070102" "41820028"
+        "2c070105" "41820028" "2c070107" "41820028" "48000040"
+        "38e00040" "48000020" "38e00041" "48000018" "38e00042" "48000010"
+        "38e00043" "48000008" "38e00044"
+        "54e7083c" "7cff3a14" "a8e70136" "2c07ffff" "40820008"
+        "4809e414"                      # b 0x800a1a3c, skip the change
+        "5480083c" "7cdf0214"           # the instructions the hook replaced
+        "4809e3d8")),                   # b 0x800a1a0c, back after the hook
+]
+
+# Always the best bonus tier (Start.dol, NTSC-US). CGame::GetBossArtifact picks
+# the end-of-dungeon reward tier as rand() % (rank + 1), where rank 0-3 is the
+# best tier the score reaches. Replacing that rand() call (0x8001439c) with
+# "li r3, 11" always gives the best tier reached (11 % 1, 2, 3 or 4 = rank).
+BEST_BONUS_TIER_PATCHES = [
+    (0x413c, bytes.fromhex("481a3655"), bytes.fromhex("3860000b")),
+]
+
+
+# Picked-up artifacts are kept: picking an artifact (ids 0x9F-0xFF) up off the
+# ground normally puts it in one of the caravan's 4 temporary slots
+# (CCaravanWork::AddTmpArtifact, 0x800A14E0), and at the end of the dungeon
+# each player keeps one of them. This replaces the function's start so it
+# fills the artifact's permanent place instead, the place the artifact list
+# and the save use (m_inventoryItems[64 + id - 0x9F], see SetArtifact).
+# Its out-index becomes that place, so a Spell Ring's command points at it.
+KEEP_ARTIFACTS_PATCHES = [
+    (0x91280,
+     bytes.fromhex("9421fff07c0802a67c671b789001001438000004"
+                   "93e1000c3be0000093c100087cbe2b78"),
+     bytes.fromhex(
+         "38c4ffa1"    # addi  r6, r4, 64 - 0x9F  the artifact's permanent place
+         "54c7083c"    # slwi  r7, r6, 1
+         "7ce33a14"    # add   r7, r3, r7
+         "b08700b6"    # sth   r4, 0xB6(r7)       m_inventoryItems[place] = id
+         "2c050000"    # cmpwi r5, 0
+         "41820008"    # beq   +8
+         "90c50000"    # stw   r6, 0(r5)          *outIndex = place
+         "38600001"    # li    r3, 1
+         "4e800020")), # blr
+]
+
+
+def patch_keep_artifacts(iso, apply=True):
+    """Artifacts picked up in a dungeon go straight into the artifact list
+    (see KEEP_ARTIFACTS_PATCHES)."""
+    return _dol_patch(iso, KEEP_ARTIFACTS_PATCHES, "keep-artifacts", apply)
+
+
+def _dol_patch(iso, patches, name, apply=True):
+    """Apply [(offset in Start.dol, original, new), ...] as one patch. Returns
+    True once it is in place. Raises if the bytes are neither (wrong game
+    version, or partly patched)."""
+    with open(iso, "r+b" if apply else "rb") as f:
+        off, _ = gciso.dol_span(f)
+        current = []
+        for at, orig, new in patches:
+            f.seek(off + at)
+            current.append(f.read(len(orig)))
+        if all(cur == new for cur, (_, _, new) in zip(current, patches)):
+            return True
+        if not all(cur == orig for cur, (_, orig, _) in zip(current, patches)):
+            raise ValueError(f"unexpected bytes at the {name} patch sites - wrong game version "
+                             f"or partly patched?")
+        if apply:
+            for at, _, new in patches:
+                f.seek(off + at)
+                f.write(new)
+    return True
+
+
+def patch_magicite_needs_ring(iso, apply=True):
+    """Magicite only goes into the command list once its ring is owned (see
+    MAGICITE_RING_PATCHES)."""
+    return _dol_patch(iso, MAGICITE_RING_PATCHES, "magicite-needs-ring", apply)
+
+
+def patch_best_bonus_tier(iso, apply=True):
+    """The end-of-dungeon bonus always gives the best tier reached (see
+    BEST_BONUS_TIER_PATCHES)."""
+    return _dol_patch(iso, BEST_BONUS_TIER_PATCHES, "best-bonus-tier", apply)
 
 
 def patch_starting_location(iso, location, apply=True):
@@ -797,9 +969,9 @@ def starting_location_status(iso):
 # Skip Meteor Parasite -> Mio questions -> Raem: a single-character patch in
 # meteo_2.cft's own STR pool retargets the post-Meteor-Parasite script name
 # from "last_5" (the memory/diary-check gate that leads into the Mio
-# questions) to "last_3" (the Raem fight itself). Byte-verified.
+# questions) to "last_3" (the Raem fight itself).
 # Experimental: skipping the Mio questions this way may leave some state unset
-# that a later check expects; not yet tested through a full playthrough.
+# that a later check expects.
 METEO2_SKIP_DISC = "dvd/cft/meteo_2.cft"
 METEO2_SKIP_OFFSET = 0x55DC3
 METEO2_SKIP_ORIG = bytes.fromhex("35")      # ASCII '5' (of "last_5")
@@ -810,7 +982,7 @@ def patch_skip_mio_questions(iso, apply=True):
     """Retarget the post-Meteor-Parasite script from `last_5` to `last_3`,
     skipping straight to the Raem fight instead of the Mio question/diary-
     check sequence. Single-byte STR-pool patch. Returns True once present
-    (freshly applied or already there); raises if the byte doesn't match
+    (freshly applied or already there). Raises if the byte doesn't match
     either the vanilla original or the patched form (wrong game version)."""
     with open(iso, "r+b" if apply else "rb") as f:
         _, files = gciso.parse_fst(f)
@@ -845,8 +1017,7 @@ def skip_mio_questions_status(iso):
 
 # Skip the opening intro cutscene: a 4-byte patch in world.cft's own STR pool
 # retargets the boot-time script reference from "ff44_1" to "ffcc_5",
-# jumping straight past the cutscene. Byte-verified and confirmed working
-# in game. The STR pool has a duplicate
+# jumping straight past the cutscene. The STR pool has a duplicate
 # "ff44_1" entry immediately after this one - only this specific slot is
 # patched, leaving the duplicate (and whatever else references it) untouched.
 WORLD_INTRO_SKIP_DISC = "dvd/cft/world.cft"
@@ -859,7 +1030,7 @@ def patch_skip_intro_cutscene(iso, apply=True):
     """Retarget world.cft's boot-time script reference from `ff44_1` to
     `ffcc_5`, skipping the opening intro cutscene entirely. Single STR-pool
     slot patch (4 bytes). Returns True once present (freshly applied or
-    already there); raises if the bytes don't match either the vanilla
+    already there). Raises if the bytes don't match either the vanilla
     original or the patched form (wrong game version)."""
     with open(iso, "r+b" if apply else "rb") as f:
         _, files = gciso.parse_fst(f)
@@ -901,9 +1072,9 @@ def skip_intro_cutscene_status(iso):
 # immediately after a read of the year global - changing the literal 2 -> 1
 # makes the check always pass (year is never < 1), permanently revealing
 # Goblin Wall from a Year 1 save without touching the year value itself or
-# anything else. Confirmed in game.
+# anything else.
 WORLD_GOBLIN_WALL_VISIBLE_DISC = "dvd/cft/world.cft"
-# Three identical `year >= 2` gates; the first one (0x38CC3) is the one used on a
+# Three identical `year >= 2` gates. The first one (0x38CC3) is the one used on a
 # fresh Year 1 world map, so without it Goblin Wall stays hidden on new saves.
 WORLD_GOBLIN_WALL_VISIBLE_OFFSETS = (0x38CC3, 0x3DE9D, 0x4193C)
 WORLD_GOBLIN_WALL_VISIBLE_ORIG = bytes.fromhex("00000002")
@@ -914,7 +1085,7 @@ def patch_goblin_wall_always_visible(iso, apply=True):
     """Change all three `currentYear >= 2` checks gating Goblin Wall's world-map
     road/icon reveal to `>= 1`, so it's visible from a Year 1 save. Three 4-byte
     site patches. Returns True once present (freshly applied or already
-    there); raises if either site's bytes don't match the vanilla original or
+    there). Raises if either site's bytes don't match the vanilla original or
     the patched form (wrong game version)."""
     with open(iso, "r+b" if apply else "rb") as f:
         _, files = gciso.parse_fst(f)
@@ -942,10 +1113,10 @@ def patch_goblin_wall_always_visible(iso, apply=True):
 # per year as `year mod 4`. Each of the 4 (year mod 4) cases writes all 4
 # slots as a permutation of {1,2,4,8} - 16 individual 4-byte int literals
 # total, grouped here as 4 groups of 4 (one group per `year mod 4` case, in
-# slot 0/1/2/3 order). Verified in game: changing a single slot's value
+# slot 0/1/2/3 order). Changing a single slot's value
 # in isolation does change which element that stream/road requires, and
 # doesn't affect anything else. Randomizing this is only safe paired with
-# `patch_goblin_wall_always_visible` - see that function's docstring; without
+# `patch_goblin_wall_always_visible` - see that function's docstring. Without
 # it, Fire/Earth aren't obtainable until Year 2 (Goblin Wall's own hotspots),
 # which could strand a Year-1 save needing either of those from the very
 # first stream.
@@ -987,6 +1158,261 @@ def set_miasma_elements(iso, groups):
             for site, value in zip(group, row):
                 f.seek(off + site + 1)  # +1: skip the PUSHI opcode byte
                 f.write(struct.pack(">i", value))
+
+
+# Hotspot elements (AP option Hotspot Elements). A hotspot's element is the
+# first argument of its SPAWN_HOT_SPOT call in a dungeon's SPAWN_MONSTER, and
+# SPAWN_HOT_SPOT hands it to the HotSpot object. To make it change with the
+# year, each call gets its own number (HOTSPOT_FIRST_ID + its place in the
+# dungeon) and SPAWN_HOT_SPOT starts by turning that number into the element
+# for the current year:
+#     if ((year & 3) == y && arg0 == id) arg0 = element    (one test per year and hotspot)
+HOTSPOT_TYPES = {"Fire": 1, "Water": 2, "Wind": 3, "Earth": 4, "Unknown": 5}
+HOTSPOT_FIRST_ID = 100
+_YEAR_SYSVAL = -0x40
+
+
+def _hotspot_calls(script):
+    """Code offsets of the element push of every SPAWN_HOT_SPOT call in
+    SPAWN_MONSTER, in order."""
+    import cft
+    import spawn_map
+    if "SPAWN_HOT_SPOT" not in script.names or "SPAWN_MONSTER" not in script.names:
+        return []
+    target = script.names.index("SPAWN_HOT_SPOT")
+    reclen = spawn_map.RECORD_LEN["SPAWN_HOT_SPOT"]
+    pushes, out = [], []
+    for off, op, arg in cft.disasm(script.code("SPAWN_MONSTER")):
+        if op in (0, 1, 2, 3, 4, 5):
+            pushes.append((off, op))
+        elif op == 0x0a:
+            if (arg & 0xFFFF) == target and len(pushes) >= reclen:
+                off0, op0 = pushes[-reclen]
+                if op0 != 3:
+                    raise ValueError("a SPAWN_HOT_SPOT element isn't a plain number")
+                out.append(off0)
+            pushes = []
+    return out
+
+
+# CFlat operands: (index << 8) | kind. Kind 0x01 = argument/local,
+# 0x09 = global or system value, 0x19 = member of the running object.
+def _arg(i):
+    return (i << 8) | 0x01
+
+
+def _global(i):
+    return (i << 8) | 0x09
+
+
+def _member(i):
+    return (i << 8) | 0x19
+
+
+def _year_chain(start, cases):
+    """Bytecode for a chain of year tests: for each (y, key, key_value,
+    sets) in `cases`, `if ((year & 3) == y && key == key_value) { each
+    target = value in sets; }`, stopping at the first match. `key` and the
+    targets are operands (_arg/_global/_member). `start` is where the code
+    goes in its function, since jumps are absolute."""
+    pushi = lambda v: b"\x03" + struct.pack(">i", v)
+    year = b"\x00" + struct.pack(">i", _global(_YEAR_SYSVAL))
+    lens = [22 + 16 + 12 * len(sets) + 5 for _, _, _, sets in cases]
+    end = start + sum(lens)
+    out = bytearray()
+    pos = start
+    for (y, key, key_value, sets), n in zip(cases, lens):
+        nxt = pos + n
+        out += year + pushi(3) + b"\x1f" + pushi(y) + b"\x2c" + b"\x08" + struct.pack(">i", nxt)
+        out += b"\x00" + struct.pack(">i", key) + pushi(key_value) + b"\x2c" + b"\x08" + struct.pack(">i", nxt)
+        for target, value in sets:
+            out += b"\x01" + struct.pack(">i", target) + pushi(value) + b"\x0d\x0c"
+        out += b"\x07" + struct.pack(">i", end)
+        pos = nxt
+    assert len(out) == end - start
+    return bytes(out)
+
+
+def _hotspot_remap(start, cases, arg_in=0, arg_out=0):
+    """`if ((year & 3) == y && args[arg_in] == key) args[arg_out] = value`
+    for each of `cases` = [(y, key, value)] (see _year_chain)."""
+    return _year_chain(start, [(y, _arg(arg_in), key, [(_arg(arg_out), value)])
+                               for y, key, value in cases])
+
+
+def set_hotspot_elements(iso, table, log=None, menus=None):
+    """Write hotspot elements that change every year. `table` is
+    {dungeon name: 4 rows (years 1-4, repeating) of one element name per
+    hotspot}, hotspots in the game's order (area file, then call order) - the
+    AP world's rules.HOTSPOTS. The world map's name bubbles show the same
+    elements. `menus` ({stop: 4 rows of element names}, the AP world's
+    rules.make_menus) also sets the stops' "Change element" menus. Returns
+    the number of hotspots changed."""
+    import cft
+    import cftpatch
+    log = log if log is not None else []
+    script_of = {name: script for script, name in lootcft.DUNGEONS}
+    changed = 0
+    with open(iso, "rb") as f:
+        _, files = gciso.parse_fst(f)
+    for dungeon, rows in table.items():
+        script = script_of[dungeon]
+        n = 0
+        for k in range(8):
+            disc = f"dvd/cft/{script}_{k}.cft"
+            if not gciso.find_file(files, disc):
+                continue
+            tmp = os.path.join(tempfile.gettempdir(), f"hotspots_{script}_{k}.cft")
+            _extract(iso, disc, tmp)
+            s = cftpatch.Script(tmp)
+            calls = _hotspot_calls(s)
+            if not calls:
+                continue
+            first = struct.unpack(">i", s.code("SPAWN_MONSTER")[calls[0] + 1:calls[0] + 5])[0]
+            if first >= HOTSPOT_FIRST_ID:
+                raise ValueError(f"{disc}: hotspot elements are already set")
+            code = bytearray(s.code("SPAWN_MONSTER"))
+            cases = []
+            for off in calls:
+                if n >= len(rows[0]):
+                    raise ValueError(f"{dungeon}: more hotspots than the table has")
+                hid = HOTSPOT_FIRST_ID + n
+                code[off + 1:off + 5] = struct.pack(">i", hid)
+                for row, elements in enumerate(rows):
+                    cases.append(((row + 1) & 3, hid, HOTSPOT_TYPES[elements[n]]))
+                n += 1
+                changed += 1
+            s.set_code("SPAWN_MONSTER", bytes(code))
+            ins = list(cft.disasm(s.code("SPAWN_HOT_SPOT")))
+            # it opens with `if (!flag) return 0`: the remap goes after that
+            at = ins[1][2] & 0xFFFFFF if [i[1] for i in ins[:4]] == [0x00, 0x08, 0x3f, 0x3c] else 0
+            cftpatch.insert_code(s, "SPAWN_HOT_SPOT", at, _hotspot_remap(at, cases), log)
+            gciso.put_file(iso, disc, s.to_bytes())
+        if n != len(rows[0]):
+            raise ValueError(f"{dungeon}: found {n} hotspots, the table has {len(rows[0])}")
+    _set_bubble_elements(iso, table, log)
+    if menus:
+        _set_menu_elements(iso, menus, log)
+    return changed
+
+
+# The world map's name bubble shows a dungeon's elements as icons:
+# WM_mapInfoDispOn(place, element bits, ...) in world.cft, place = the
+# dungeon's number (c_system.cfd place names: River Belle Path 0 ... Rebena Te
+# Ra 12). The loading-zone shuffle moves both arguments with the dungeon.
+BUBBLE_BITS = {"Fire": 1, "Water": 2, "Wind": 4, "Earth": 8}
+BUBBLE_PLACES = ["River Belle Path", "Goblin Wall", "The Mine of Cathuriges", "The Mushroom Forest",
+                 "Tida", "Moschet Manor", "Mount Kilanda", "Daemon's Court", "Selepation Cave",
+                 "Veo Lu Sluice", "Lynari Desert", "Conall Curach", "Rebena Te Ra"]
+
+
+def _set_bubble_elements(iso, table, log):
+    """Make the bubble's element icons follow the year's hotspot elements:
+    WM_mapInfoDispOn starts with `if ((year & 3) == y && arg0 == place)
+    arg1 = bits` for every dungeon in `table` and year row."""
+    import cftpatch
+    disc = "dvd/cft/world.cft"
+    tmp = os.path.join(tempfile.gettempdir(), "hotspots_world.cft")
+    _extract(iso, disc, tmp)
+    s = cftpatch.Script(tmp)
+    cases = []
+    for dungeon, rows in table.items():
+        place = BUBBLE_PLACES.index(dungeon)
+        for row, elements in enumerate(rows):
+            bits = 0
+            for element in elements:
+                bits |= BUBBLE_BITS.get(element, 0)
+            cases.append(((row + 1) & 3, place, bits))
+    code = _hotspot_remap(0, cases, arg_in=0, arg_out=1)
+    cftpatch.insert_code(s, "WM_mapInfoDispOn", 0, code, log)
+    gciso.put_file(iso, disc, s.to_bytes())
+
+
+# The "Change element" menu at a stop: MJ_SWING_ATTRIB_2 (two choices) and
+# MJ_SWING_ATTRIB_1 (one) set, per stop (G61), the choices in this.m41/m42
+# and the menu text in this.m43 (a world.cfd message), then show it.
+# stop (spot named by its vanilla dungeon): (G61, vanilla message, function)
+MENU_STOPS = {
+    "River Belle Path":       (2,  315, "MJ_SWING_ATTRIB_2"),
+    "Goblin Wall":            (7,  316, "MJ_SWING_ATTRIB_2"),
+    "Tida":                   (23, 317, "MJ_SWING_ATTRIB_2"),
+    "Moschet Manor":          (26, 318, "MJ_SWING_ATTRIB_2"),
+    "The Mushroom Forest":    (17, 319, "MJ_SWING_ATTRIB_1"),
+    "The Mine of Cathuriges": (16, 320, "MJ_SWING_ATTRIB_1"),
+    "Selepation Cave":        (43, 321, "MJ_SWING_ATTRIB_1"),
+    "Lynari Desert":          (81, 322, "MJ_SWING_ATTRIB_1"),
+}
+# an element's word in a message, with its colour code before and the
+# reset code after
+MENU_WORDS = {"Fire": b"\xff\xaefire", "Water": b"\xff\xb1water",
+              "Wind": b"\xff\xb0wind", "Earth": b"\xff\xb2earth"}
+_MENU_WORD = re.compile(rb"\xff[\xae\xb0\xb1\xb2](?:fire|water|wind|earth)(?=\xff\xb3)")
+
+
+def _cfd_messages(data):
+    """(chunks, messages): a .cfd file's CFLD children as [tag, arg0,
+    version, payload] and its MES strings."""
+    tag, size, _, _ = struct.unpack(">4sIII", data[:16])
+    if tag != b"CFLD":
+        raise ValueError("not a CFLD file")
+    chunks, p, end = [], 16, 16 + (size & 0xFFFFFF)
+    while p + 16 <= end:
+        t, sz, a0, ver = struct.unpack(">4sIII", data[p:p + 16])
+        sz &= 0xFFFFFF
+        chunks.append([t, a0, ver, data[p + 16:p + 16 + sz]])
+        p += 16 + (sz + 15) // 16 * 16
+    mes = next(c for c in chunks if c[0] == b"MES ")
+    return chunks, mes[3].split(b"\0")[:mes[1]]
+
+
+def _cfd_build(chunks, messages):
+    """A .cfd file from its chunks, with MES set to `messages`."""
+    body = bytearray()
+    for t, a0, ver, payload in chunks:
+        if t == b"MES ":
+            payload, a0 = b"".join(m + b"\0" for m in messages), len(messages)
+        body += struct.pack(">4sIII", t, len(payload), a0, ver) + payload
+        body += bytes(-len(payload) % 16)
+    return struct.pack(">4sIII", b"CFLD", len(body), 0, 0) + bytes(body)
+
+
+def _set_menu_elements(iso, menus, log):
+    """Give every stop's "Change element" menu its year's choices: one new
+    world.cfd message per stop and year row (the stop's own text, so a
+    shuffled dungeon name stays, with that year's element words), and a
+    year chain in MJ_SWING_ATTRIB_1/_2, before the menu is shown, that sets
+    the choices and the message. `menus` = {stop: 4 rows of element names}."""
+    import cft
+    import cftpatch
+    tmp = os.path.join(tempfile.gettempdir(), "hotspots_world.cfd")
+    _extract(iso, "dvd/cft/world.cfd", tmp)
+    chunks, messages = _cfd_messages(open(tmp, "rb").read())
+    if len(messages) + 4 * len(menus) > 1122:
+        raise ValueError("world.cfd would have too many messages")
+    cases = {"MJ_SWING_ATTRIB_1": [], "MJ_SWING_ATTRIB_2": []}
+    for stop, rows in menus.items():
+        g61, base, fn = MENU_STOPS[stop]
+        for row, elements in enumerate(rows):
+            words = iter(MENU_WORDS[e] for e in elements)
+            text, n = _MENU_WORD.subn(lambda m: next(words), messages[base])
+            if n != len(elements):
+                raise ValueError(f"message {base} has {n} element words, {stop} offers {len(elements)}")
+            sets = [(_member(41 + i), BUBBLE_BITS[e]) for i, e in enumerate(elements)]
+            sets.append((_member(43), len(messages)))
+            messages.append(text)
+            cases[fn].append(((row + 1) & 3, _global(61), g61, sets))
+    tmp_cft = os.path.join(tempfile.gettempdir(), "hotspots_world.cft")
+    _extract(iso, "dvd/cft/world.cft", tmp_cft)
+    s = cftpatch.Script(tmp_cft)
+    for fn, fn_cases in cases.items():
+        if not fn_cases:
+            continue
+        # right after the switch that sets the vanilla choices: the first
+        # read of this.m40 (the "stage cleared" flag test)
+        at = next(o for o, op, a in cft.disasm(s.code(fn)) if op == 0x00 and a == _member(40))
+        cftpatch.insert_code(s, fn, at, _year_chain(at, fn_cases), log)
+    gciso.put_file(iso, "dvd/cft/world.cft", s.to_bytes())
+    gciso.put_file(iso, "dvd/cft/world.cfd", _cfd_build(chunks, messages))
 
 
 def miasma_elements_status(iso):
@@ -1096,7 +1522,7 @@ def _trap_visuals_state(f):
     hook = f.read(4)
     f.seek(off + TRAP_CAVE_DOL_OFFSET)
     cave = f.read(len(TRAP_CAVE_PATCHED))
-    if hook == TRAP_HOOK_PATCHED and cave == TRAP_CAVE_PATCHED:
+    if hook in (TRAP_HOOK_PATCHED, ITEM_DROP_HOOK_PATCHED) and cave == TRAP_CAVE_PATCHED:
         return True
     if hook == TRAP_HOOK_ORIG and cave == TRAP_CAVE_ORIG:
         return False
@@ -1116,6 +1542,103 @@ def patch_trap_visuals(iso, apply=True):
             f.write(TRAP_CAVE_PATCHED)
             f.seek(off + TRAP_HOOK_DOL_OFFSET)
             f.write(TRAP_HOOK_PATCHED)
+    return True
+
+
+# Item drops: the AP client can put an item on the ground in front of the
+# player instead of in the bag. It writes the item id to ITEM_DROP_PENDING.
+# Once a frame, for player 1 only, this code asks the game whether the player
+# can put something down (CGPartyObj::canPlayerPutItem: alive, free to act,
+# not carrying anything) and, if so, creates the item the way the game's own
+# "put an item down" does (CGItemObj::CreateFromScript(0, 9, id, player, 0.0,
+# 0), without the put-down animation) and clears ITEM_DROP_PENDING. If the
+# player can't, it waits for a later frame.
+#
+# It shares the trap-visuals hook site: the hook calls this code instead,
+# which then jumps on into the trap code, so installing it installs trap
+# visuals too. The code sits in the rest of TRKDoReadMemory's space, after
+# the trap pending table.
+ITEM_DROP_HOOK_PATCHED = bytes.fromhex("48098339")  # bl 0x801A9D80
+ITEM_DROP_DOL_OFFSET = 0x199B18                     # RAM 0x801A9D78
+ITEM_DROP_PENDING = 0x801A9D78                      # RAM, u16 item id
+ITEM_DROP_ORIG = bytes.fromhex(
+    "6806000138e000014800241d7c7e1b787fe3fb78388000004bffec852c1e000040820078"
+    "386100a43880000038a000404be5b66580810020380000809bc100ac7fe3fb7838840040"
+    "38a00040908100a4388100a4980100a84bffeb712c1c000041820024574006fe38810100"
+    "80a100207fe3fb787c8402144bffeb517c7e1b784800001880a100207fe3fb7838810100"
+    "4bffeb397c7e1b782c1e00004182008c381ef900")
+ITEM_DROP_PATCHED = bytes.fromhex(
+    "0000"       # ITEM_DROP_PENDING (0x801A9D78)
+    "0000"
+    "00000000"   # 0.0f (0x801A9D7C)
+    "9421ffe0"   # stwu  r1, -0x20(r1)    0x801A9D80, called from the hook
+    "9001000c"   # stw   r0, 0xc(r1)      keep the loop's r0 and r3 for the
+    "90610008"   # stw   r3, 0x8(r1)      instruction the hook replaced
+    "7c0802a6"   # mflr  r0
+    "90010024"   # stw   r0, 0x24(r1)
+    "81990058"   # lwz   r12, 0x58(r25)   this->m_scriptHandle
+    "3d608022"   # lis   r11, 0x8022
+    "396bf270"   # addi  r11, r11, -0xd90 (0x8021F270 = player 1's CCaravanWork)
+    "7c0c5800"   # cmpw  r12, r11
+    "40820060"   # bne   done             not player 1
+    "2c1d0000"   # cmpwi r29, 0
+    "40820058"   # bne   done             only on the loop's first status (once a frame)
+    "3d60801b"   # lis   r11, 0x801B
+    "a18b9d78"   # lhz   r12, -0x6288(r11) ITEM_DROP_PENDING
+    "2c0c0000"   # cmpwi r12, 0
+    "41820048"   # beq   done             nothing to drop
+    "7f23cb78"   # mr    r3, r25
+    "4bf723d9"   # bl    CGPartyObj::canPlayerPutItem (0x8011C19C)
+    "2c030000"   # cmpwi r3, 0
+    "41820038"   # beq   done             can't put anything down right now
+    "3d60801b"   # lis   r11, 0x801B
+    "a0ab9d78"   # lhz   r5, -0x6288(r11) item id
+    "38600000"   # li    r3, 0            an item
+    "38800009"   # li    r4, 9            in front of the player, on safe ground
+    "7f26cb78"   # mr    r6, r25          dropped by the player
+    "c02b9d7c"   # lfs   f1, -0x6284(r11) 0.0f
+    "38e00000"   # li    r7, 0
+    "4bf7af29"   # bl    CGItemObj::CreateFromScript (0x80124D14)
+    "2c030000"   # cmpwi r3, 0
+    "41820010"   # beq   done             not created, try again next frame
+    "39800000"   # li    r12, 0
+    "3d60801b"   # lis   r11, 0x801B
+    "b18b9d78"   # sth   r12, -0x6288(r11) clear ITEM_DROP_PENDING
+    "80010024"   # lwz   r0, 0x24(r1)     done:
+    "7c0803a6"   # mtlr  r0
+    "80610008"   # lwz   r3, 0x8(r1)
+    "8001000c"   # lwz   r0, 0xc(r1)
+    "38210020"   # addi  r1, r1, 0x20
+    "4bfffe90"   # b     0x801A9CA8       on into the trap code, which returns to the loop
+)
+assert len(ITEM_DROP_ORIG) == len(ITEM_DROP_PATCHED)
+
+
+def _item_drops_state(f):
+    off, _ = gciso.dol_span(f)
+    f.seek(off + ITEM_DROP_DOL_OFFSET)
+    code = f.read(len(ITEM_DROP_PATCHED))
+    if code == ITEM_DROP_PATCHED:
+        return True
+    if code == ITEM_DROP_ORIG:
+        return False
+    raise ValueError("unexpected bytes at the item-drop patch site - wrong game version?")
+
+
+def patch_item_drops(iso, apply=True):
+    """Install the item-drop code (see ITEM_DROP_* above) and the trap-visuals
+    hook it goes through. Returns True once present."""
+    with open(iso, "r+b" if apply else "rb") as f:
+        if _item_drops_state(f) and _trap_visuals_state(f):
+            return True
+    if apply:
+        patch_trap_visuals(iso, apply=True)
+        with open(iso, "r+b") as f:
+            off, _ = gciso.dol_span(f)
+            f.seek(off + ITEM_DROP_DOL_OFFSET)
+            f.write(ITEM_DROP_PATCHED)
+            f.seek(off + TRAP_HOOK_DOL_OFFSET)
+            f.write(ITEM_DROP_HOOK_PATCHED)
     return True
 
 
@@ -1146,14 +1669,14 @@ def mog_never_tired_status(iso):
 # codes, translated to direct Start.dol patches): normally hidden
 # behind a retail build-check, this re-enables a real developer debug menu
 # (MUTEKI/invincible, COLCHECK, PARTICLE, CHARA INFO, and more) plus a second-
-# controller input path for it. All 9 sites verified against the retail
+# controller input path for it. All 9 sites are in the retail
 # NTSC-US Start.dol (offsets are DOL-relative, i.e. added to gciso.dol_span()'s
 # own offset, not raw ISO offsets - matches this file's other DOL patches).
 # Once applied: plug in a second GameCube controller (Port 2). On Port 2,
 # A opens the debug menu, B closes it, D-pad Up/Down moves the selection and
 # A/B toggles the highlighted entry. This is a QA test-flag menu (invincibility,
 # collision, particle/shadow toggles, etc.) and is not known to include a
-# working free-roam camera; treat it as an experimental bonus, not a core
+# working free-roam camera. Treat it as an experimental bonus, not a core
 # feature, and expect some entries to do nothing or destabilize the game.
 DEBUG_MENU_PATCHES = [
     (0x00ed0c, bytes.fromhex("a0040036"), bytes.fromhex("a004005c")),
@@ -1170,8 +1693,8 @@ DEBUG_MENU_PATCHES = [
 
 def patch_debug_menu(iso, apply=True):
     """Unlock the developer 'Development Mode' debug menu (see DEBUG_MENU_PATCHES
-    above) via 9 verified Start.dol patches. Returns True once all sites are in
-    the patched state (freshly applied or already there); raises if any site's
+    above) via 9 Start.dol patches. Returns True once all sites are in
+    the patched state (freshly applied or already there). Raises if any site's
     bytes are neither the vanilla original nor the patched form (wrong game
     version), without writing anything partway."""
     with open(iso, "r+b" if apply else "rb") as f:
@@ -1303,10 +1826,8 @@ def dungeon_chest_map(ref_iso, script, discs):
 def set_kind(item_ids):
     """Classify a NON-chest set by content: 'magicite', 'gathering', or 'monster'.
 
-    Validated against the GameCube set-list sheet's chest()/monster[] tagging
-    (River matched exactly): all-magicite sets are element/magicite spawns; sets
-    of only food / Phoenix Down / raw '*Seed' materials are gathering nodes; and
-    everything else (artifacts, recipes/scrolls, or crafting materials like
+    All-magicite sets are element/magicite spawns, sets of only food / Phoenix
+    Down / raw '*Seed' materials are gathering nodes, and everything else (artifacts, recipes/scrolls, or crafting materials like
     Bronze/Iron/Mythril/ores/monster-parts) is an enemy (monster) drop."""
     reals = [v for v in item_ids if is_item(v)]
     if not reals:
@@ -1393,7 +1914,7 @@ def cmd_spoiler(iso, out_path, ref=None, header=None):
             if not sets:
                 continue
             labels = _chest_labels(ref, script, disc)[0] if ref else {}
-            # Game8's matcher can map several sets to one generic chest; keep only
+            # Game8's matcher can map several sets to one generic chest, so keep only
             # the first set per chest number (per area).
             seen_chest, titles = set(), {}
             for si in range(len(sets)):
@@ -1441,8 +1962,8 @@ def cmd_spoiler(iso, out_path, ref=None, header=None):
 #                                    "_chest": <n|null>,
 #                                    "1": "<item>", "2": "<item>", "3": "<item>" } } } }
 # Set indices are stable per area (find_sets is deterministic). "_label" mirrors
-# the chest editor: each Game8 chest is numbered once per dungeon ("Chest N"); every
-# other set is classified (validated against the GameCube set-list sheet) as
+# the chest editor: each Game8 chest is numbered once per dungeon ("Chest N"). Every
+# other set is classified as
 # "Monster N" (enemy drop), "Magicite N" (stone/element spawn) or "Gathering N"
 # (food/seeds), each numbered across areas. "_chest" is the numeric chest id or null.
 # Each cycle value is a single item, or a list to spread across that cycle's slots.
@@ -1503,18 +2024,18 @@ def cmd_export(iso, out_path, ref=None):
         pass  # older/unrecognized dol - leave the key out rather than fail the export
     data["_stage_key_locks"] = False    # set true to create/place keys + apply locks on patch
     # true = pick the random parts (unlisted world zones, the stage-key chain)
-    # with progression logic; false = apply as written (e.g. Archipelago)
+    # with progression logic, false = apply as written (e.g. Archipelago)
     data["_progression_logic"] = False
     # keep the magicite needed for Holy (Lich/Zombie Dragon) and Tida's Fire
-    # vanilla; false = no protection (the JSON's chest data is never changed either way)
+    # vanilla, false = no protection (the JSON's chest data is never changed either way)
     data["_protect_required_stones"] = True
     # EXPERIMENTAL boss shuffle. `_randomize_bosses: true` shuffles bosses on
-    # patch (Goblin King and Lich stay home); `_bosses` places them explicitly
+    # patch (Goblin King and Lich stay home). `_bosses` places them explicitly
     # (dungeon -> boss, any boss in any dungeon) and wins over the shuffle for
     # every dungeon it lists. Needs a copy whose bosses haven't been moved yet.
     # EXPERIMENTAL world-map loading-zone shuffle. `_world_zones` maps each
-    # world-map node (named by its vanilla dungeon) to the dungeon it leads to;
-    # an entry naming the node's own dungeon means "no preference".
+    # world-map node (named by its vanilla dungeon) to the dungeon it leads to.
+    # An entry naming the node's own dungeon means "no preference".
     data["_randomize_world_zones"] = False
     try:
         import worldzones
@@ -1551,7 +2072,7 @@ def cmd_export(iso, out_path, ref=None):
         pass  # older/unrecognized newbattle.cfd - leave the key out rather than fail
     for script, friendly, discs in dungeons_in_iso(iso):
         dd = {"_name": friendly}
-        # dungeon-wide numbering (each Game8 chest once); every other set is
+        # dungeon-wide numbering (each Game8 chest once). Every other set is
         # classified Monster / Magicite / Gathering - identical to the chest
         # editor. (Labels need --ref to know which sets are chests.)
         cmap = dungeon_chest_map(ref, script, discs) if ref else {}
@@ -1609,7 +2130,7 @@ def _artifacts_per_cycle(sets):
 # (never monster drops - some enemies can drop several candidate artifacts at
 # once, which would make key delivery unreliable). See
 # Documentation/Artifact-Gated Stage Entrances.md for the in-game gating half
-# of this feature; this section is the key-creation/placement half and works
+# of this feature. This section is the key-creation/placement half and works
 # independently of the gate checks.
 #
 # `river` (River Belle Path) is always left unlocked/keyless - it's the
@@ -1664,7 +2185,7 @@ _STAGE_LOCK_ENCOUNTKAIDO_VAL_ARG0_OFF = 0x33e88               # encountKaido VAL
 _STAGE_LOCK_ENCOUNTKAIDO_CODE_OFF = 0x33ec0                   # encountKaido CODE start
 
 # (dungeon script, mainBasha call-site file offset, stage id, forward func idx)
-# Stage ids, forward func indices and call-site bytes are verified against a
+# Stage ids, forward func indices and call-site bytes are for the
 # retail world.cft. The stage id is the stage script's STR index, pushed as the call's first
 # argument. Mount Kilanda is NOT here: it's entered through 4-argument
 # MJ_SWING calls, locked separately below (_KILANDA_*).
@@ -1685,7 +2206,7 @@ _STAGE_LOCK_SITES = [
 
 # World-map stops with an element menu (picking the chalice element there,
 # or entering). In the game the menu only appears once the stage has been
-# cleared; with stage keys it is always offered and needs no key, so the
+# cleared. With stage keys it is always offered and needs no key, so the
 # element a stream asks for can always be picked up on the near side of it,
 # whatever keys the player has. Entering still needs the key: the menu's
 # "enter" calls go to the dispatcher instead of straight to
@@ -1799,15 +2320,14 @@ def _kilanda_dispatcher_body(item_id, check_func_idx=234, forward_func_idx=_KILA
     prog += op5(0x0a, (0xFFFF << 16) | forward_func_idx)          # CALL MJ_SWING
     prog += bytes([0x3c])                                        # RET
     deny = len(prog)
-    prog += bytes([0x3f, 0x3c])                                  # PUSH0; RET
+    prog += bytes([0x3f, 0x3c])                                  # PUSH0, RET
     prog[jz:jz + 5] = op5(0x08, deny)
     return bytes(prog)
 
 
 def _patch_kilanda_and_leuda(iso, apply=True):
-    """Lock Mount Kilanda's four entrances behind its key, and put back the
-    Leuda stop older versions locked by mistake. Idempotent. Returns a short
-    status string."""
+    """Lock Mount Kilanda's four entrances behind its key, and make sure the
+    Leuda stop is not locked. Idempotent. Returns a short status string."""
     import cftpatch
     tmp = os.path.join(tempfile.gettempdir(), "stagelock_kilanda_world.cft")
     size = _extract(iso, WORLD_CFT_DISC, tmp)
@@ -1863,11 +2383,11 @@ def _patch_kilanda_and_leuda(iso, apply=True):
 # world-map lock above turns the caravan away at the dock and the boat sails
 # back and forth, so the boatman refuses the trip instead. In each boatman
 # talk (mainEventClient), right after the destination and fare are set, the
-# script checks whether the player said no (`this.m23 != -1`; at Leuda
+# script checks whether the player said no (`this.m23 != -1`, at Leuda
 # `this.m26 == -1`). That check now reads its value through a gate that says
 # "no" (-1) for a Kilanda trip without the key, so the boatman just stops
 # talking: no fare, no trip. The gate is the town's unused library helper
-# dropItem_fromNpc4. Kilanda is destination 8 (this.m27) at both ports; at
+# dropItem_fromNpc4. Kilanda is destination 8 (this.m27) at both ports. At
 # Leuda it is choice 2, or choice 0 once the river is low (this.m14, with
 # eventWork[1] == 5).
 _KILANDA_BOAT_FUNC = 427
@@ -1969,7 +2489,7 @@ def patch_stage_key_locks(iso, apply=True, sites=None):
     to the switch built by _stage_lock_dispatcher_body(), and applies the one
     Start.dol fix needed for the check to see permanent artifacts at all.
     Same-size edits throughout - no ISO resizing needed. Returns True once
-    present (freshly applied or already there); raises if any site's bytes
+    present (freshly applied or already there). Raises if any site's bytes
     are neither vanilla nor already-patched (wrong game version, a
     conflicting prior edit, or an already-modified `mainBasha`)."""
     import cftpatch
@@ -1980,7 +2500,7 @@ def patch_stage_key_locks(iso, apply=True, sites=None):
         return bytes([0x0a]) + struct.pack(">I", (0xFFFF << 16) | func_idx)
 
     # A node whose call opens the element menu (MJ_SWING_ATTRIB_1/2) keeps
-    # that call, so the element can be picked without the key; its key is
+    # that call, so the element can be picked without the key. Its key is
     # checked when the menu's "enter" goes through the dispatcher, which then
     # forwards to MJ_SWING_PADCHECK. Other nodes have their call redirected
     # to the dispatcher, which forwards to the node's own MJ_SWING variant.
@@ -2093,10 +2613,9 @@ STAGE_KEY_DESC_TEXT = {
     "swamp": "Conall Key",       # dropped "Curach" - needed to fit
 }
 # For a few IDs, the nearest "Help Message" placeholder(s) don't have enough
-# spare room for set_item_description()'s default nearby auto-search (tested
-# against a retail c_system.cfd), so they use an explicit farther donor slot,
-# per the description recipe in Documentation/Adding Custom Items and
-# Artifacts.md.
+# spare room for set_item_description()'s default nearby auto-search, so they
+# use an explicit farther donor slot, per the description recipe in
+# Documentation/Adding Custom Items and Artifacts.md.
 STAGE_KEY_DESC_DONOR = {
     "lava": 0xFB,
     "cave": 0xFC,   # distinct from lava's 0xFB - one shared donor lacks room for both
@@ -2131,7 +2650,7 @@ def place_stage_keys(iso, chain, rng, chests_per_dungeon=STAGE_KEY_CHESTS_PER_DU
     `holy_dungeons` dungeon (see STONE_DUNGEONS) the magicite sets are never
     used, so a key can't overwrite the stones that dungeon needs.
     `avoid_offsets` ({disc: set of file offsets}) marks chests a patch JSON
-    set explicitly; sets touching those offsets are never used either.
+    set explicitly, and sets touching those offsets are never used either.
     Returns {dungeon_script: [chest_set_index, ...]} actually used."""
     by_script = dict((s, kid) for s, kid, _ in STAGE_KEYS)
     discs_by_script = {script: discs for script, _, discs in dungeons_in_iso(iso)}
@@ -2182,11 +2701,11 @@ def cmd_patch(iso, json_path, max_artifacts=4):
     Warns if the result exceeds `max_artifacts` artifacts per cycle (carry cap)."""
     # Make sure the custom AP Item exists so a JSON that places it resolves. Safe
     # to call on every ISO (idempotent): users with a fresh, unpatched ISO get it
-    # baked in automatically; already-patched ISOs are left untouched.
+    # baked in automatically, and already-patched ISOs are left untouched.
     try:
         import customitem
         if customitem.ensure_ap_item(iso):
-            print("Installed AP Item into ISO (definition + name + icon).")
+            print("Installed AP Item into ISO (definition, name, icon and logo model).")
     except Exception as e:
         print(f"note: could not auto-install AP Item ({e}); JSON placing it may fail")
     try:
@@ -2444,7 +2963,7 @@ def _boss_plan_from_spec(spec):
 def _zone_plan_from_spec(spec):
     """World-zone plan from a patch JSON, or None to leave the map alone.
     `_world_zones` entries that name a node's own dungeon mean "no
-    preference"; with `_randomize_world_zones: true` the rest are shuffled."""
+    preference". With `_randomize_world_zones: true` the rest are shuffled."""
     import worldzones
     fixed = worldzones.normalize(spec.get("_world_zones") or {})
     if spec.get("_randomize_world_zones"):
@@ -2562,9 +3081,9 @@ def apply_bosses(iso, boss_plan, spoiler=None):
 
 
 # Version of the Archipelago world (worlds/ffcc VERSION) this randomizer is made
-# for. Seeds record the version that generated them; the AP patch warns when
+# for. Seeds record the version that generated them. The AP patch warns when
 # they differ, since options and item placement rules change between versions.
-AP_WORLD_VERSION = (0, 1, 7)
+AP_WORLD_VERSION = (0, 2, 0)
 
 
 def load_ffcc(path):
@@ -2607,7 +3126,7 @@ def ap_world_version_problem(placement_json):
 
 
 def cmd_hybrid_patch(iso, ref_iso, ffcc_file):
-    """Hybrid AP patch: own-player chests get the real item; others get AP Item.
+    """Hybrid AP patch: own-player chests get the real item, others get AP Item.
 
     Reads the .ffcc placement file produced by Archipelago generation to decide
     which item belongs in each chest.  For this player's own items the game
@@ -2639,14 +3158,18 @@ def cmd_hybrid_patch(iso, ref_iso, ffcc_file):
 
     # Build lookup: (dungeon, cycle, chest_no) -> item_id to write in binary.
     # Chest numbers are the game's own order (chestflags.py), the same numbering
-    # the AP locations and the client use; old .ffcc files used "game8_chest".
+    # the AP locations and the client use. Old .ffcc files used "game8_chest".
     chest_items = {}  # (dungeon:str, cycle:int, chest:int) -> int
     real_count  = 0
+    import chestcolors
+    gold = set()      # (dungeon, cycle, chest) whose item gets a gold chest
     for loc_name, loc_data in raw_locs.items():
         dungeon  = loc_data.get("dungeon", "")
         cycle    = int(loc_data.get("cycle", 1))
         chest_no = int(loc_data.get("chest", loc_data.get("game8_chest", 0)))
         is_self  = loc_data.get("player") == self_player
+        if loc_data.get("class") in chestcolors.GOLD_CLASSES:
+            gold.add((dungeon, cycle, chest_no))
 
         if is_self:
             # Use the item_id written directly into the .ffcc file — no name
@@ -2654,7 +3177,7 @@ def cmd_hybrid_patch(iso, ref_iso, ffcc_file):
             raw_id = loc_data.get("item_id")
             item_id = int(raw_id) if raw_id is not None else None
             # "in_chest" (newer AP worlds) says whether the item goes in the chest
-            # itself; artifacts don't, since the game only keeps the one artifact
+            # itself. Artifacts don't, since the game only keeps the one artifact
             # picked as the dungeon reward. Older files: every own item with an ID.
             in_chest = loc_data.get("in_chest",
                                     item_id is not None and (is_item(item_id) or item_id in stage_key_ids))
@@ -2675,7 +3198,7 @@ def cmd_hybrid_patch(iso, ref_iso, ffcc_file):
     try:
         import customitem
         if customitem.ensure_ap_item(iso):
-            print("Installed AP Item into ISO (definition + name + icon).")
+            print("Installed AP Item into ISO (definition, name, icon and logo model).")
     except Exception as e:
         print(f"Note: could not auto-install AP Item ({e}); 0x162 must already be present.")
     try:
@@ -2695,6 +3218,10 @@ def cmd_hybrid_patch(iso, ref_iso, ffcc_file):
         ("skip_mio_questions",   patch_skip_mio_questions,         "Skip Mio's questions"),
         ("goblin_wall_year_one", patch_goblin_wall_always_visible, "Goblin Wall in Year 1"),
         ("trap_visuals",         patch_trap_visuals,               "Trap visuals"),
+        ("items_dropped_at_your_feet", patch_item_drops,           "Items dropped at your feet"),
+        ("magicite_needs_ring",  patch_magicite_needs_ring,        "Magicite needs its ring"),
+        ("best_bonus_tier",      patch_best_bonus_tier,            "Always best bonus tier"),
+        ("keep_picked_up_artifacts", patch_keep_artifacts,         "Picked-up artifacts are kept"),
     ]
     if settings.get("randomize_miasma_streams") or settings.get("shuffle_loading_zones"):
         settings = dict(settings, goblin_wall_year_one=True)   # the logic assumes it
@@ -2706,13 +3233,31 @@ def cmd_hybrid_patch(iso, ref_iso, ffcc_file):
         set_miasma_elements(iso, placement_json["miasma_elements"])
         print(f"Miasma Stream elements set by the multiworld: {placement_json['miasma_elements']}")
     rng = random.Random(str(placement_json.get("seed")) + str(placement_json.get("slot")))
-    if settings.get("randomize_shops"):
+    if placement_json.get("shop_stock"):
+        # Shop Checks: the AP world decides every slot, and each shop keeps
+        # the same list all game
+        import shopchecks
+        stock = {key: [int(i) for i in items] for key, items in placement_json["shop_stock"].items()}
+        shopchecks.patch(iso, stock)
+        own = sum(i != AP_ITEM_ID for items in stock.values() for i in items)
+        print(f"Shop Checks: {sum(map(len, stock.values()))} slot(s) in {len(stock)} shop(s), "
+              f"{own} selling this player's own item")
+    elif settings.get("randomize_shops"):
         res = randomize_shops(iso, rng, apply=True)
         print(f"Shops: {sum(res.values())} slot(s) across {len(res)} shop(s) randomized")
     if settings.get("randomize_shop_prices"):
         n = randomize_prices(iso, rng, apply=True, pool=shop_pool(ref_iso))
         print(f"Shop prices: {n} item price(s) shuffled")
-    if settings.get("randomize_bonus_pools"):
+    # The AP world decides the bonus pools (so the trackers can show them).
+    # Seeds made before that only say whether to randomize them here.
+    if placement_json.get("bonus_pools"):
+        import lootcft
+        script_of = {name: script for script, name in lootcft.DUNGEONS}
+        spec = {script_of[dungeon]: dict(enumerate(entries))
+                for dungeon, entries in placement_json["bonus_pools"].items()}
+        changed = set_bonus_pools(iso, spec, apply=True)
+        print(f"Bonus pools: set by the multiworld ({sum(map(len, changed.values()))} slot(s) changed)")
+    elif settings.get("randomize_bonus_pools"):
         changes = randomize_bonus_pools(iso, rng, mode="cross", pool=build_pool("all"), apply=True)
         print(f"Bonus pools: {len(changes)} slot(s) randomized")
 
@@ -2729,8 +3274,16 @@ def cmd_hybrid_patch(iso, ref_iso, ffcc_file):
         patch_stage_key_locks(iso, apply=True, sites=stage_lock_sites_for(zone_plan))
         print("Stage keys: 13 dungeons now need their key (keys come from the multiworld).")
 
+    # AP option Monster Hunt Checks: enemies are the checks, so every chest is
+    # emptied and hidden (step 4) and none is gold.
+    hunt_checks = bool(settings.get("monster_hunt_checks"))
+    # AP option Chest Color Matches Contents (off for seeds made before it existed)
+    gold_chests = bool(settings.get("chest_color_matches_contents")) and not hunt_checks
+    if gold_chests and chestcolors.install(iso):
+        print("Added the gold chest texture (important items get gold chests).")
+
     # ── 3. Apply per-cycle item assignments ────────────────────────────────────
-    # A chest rolls its get_treasure slot from the dungeon's cycle; vanilla
+    # A chest rolls its get_treasure slot from the dungeon's cycle. Vanilla
     # windows overlap (cycle 1 = slots 0-3, 2 = 2-5, 3 = 4-7), so getIdxSet is
     # patched to always use slot 0 / 2 / 4, and each location's item goes in
     # exactly that slot. Gil-only chests work the same way: their gil is
@@ -2778,19 +3331,58 @@ def cmd_hybrid_patch(iso, ref_iso, ffcc_file):
                         if c["split"]:
                             treasure.write_slot(buf, slots[slot], 0)   # not a location: empty
                         continue
-                    item_id = chest_items.get((friendly, cycle, c["chest"]), AP_ITEM_ID)
+                    item_id = 0 if hunt_checks else chest_items.get((friendly, cycle, c["chest"]), AP_ITEM_ID)
                     treasure.write_slot(buf, slots[slot], item_id)
                     written += 1
             if len(buf) != size:
                 raise ValueError(f"{disc}: size changed, refusing to inject")
-            with open(iso, "r+b") as f:
-                _, files = gciso.parse_fst(f)
-                _, off, _ = gciso.find_file(files, disc)[0]
-                f.seek(off)
-                f.write(buf)
+
+            # Gold chests: set each chest's gold bits for the cycles where its
+            # item is important, then let initTreasureBox pick the gold
+            # texture from them (chestcolors.py). That edit makes the script
+            # a little longer, so it is written back with put_file.
+            golden = 0
+            for off, _, _, flag in (chestflags._chest_case_pushes(tmp) if gold_chests else []):
+                c = next((c for c in chests if c["area"] == area and flag in c["flags"]), None)
+                if c is None:
+                    continue
+                cycles = [cy for cy in c["cycles"] if (friendly, cy, c["chest"]) in gold]
+                a = struct.unpack(">i", buf[off + 1:off + 5])[0] & ~chestcolors.ALL_GOLD_BITS
+                buf[off + 1:off + 5] = struct.pack(">i", a | chestcolors.gold_bits(cycles))
+                golden += bool(cycles)
+            open(tmp, "wb").write(buf)
+            content = (chestcolors.patch_script(tmp) if gold_chests else None) or bytes(buf)
+            gciso.put_file(iso, disc, content)
+            if golden:
+                print(f"  {script:8s} a{area}: {golden} gold chest(s)")
             total_slots += written
             if written:
                 print(f"  {script:8s} a{area}: {written} chest slot(s) patched (hybrid)")
+
+    # ── 4. Hide Collected Chests: the client fills in each dungeon's mask.
+    # With Monster Hunt checks every chest is hidden instead.
+    if hunt_checks:
+        import hidechests
+        hidechests.apply(iso, hide_all=True)
+        print("Monster Hunt checks: chests emptied and hidden (enemies are the checks)")
+    elif settings.get("hide_collected_chests"):
+        import hidechests
+        hidechests.apply(iso)
+        print("Hide collected chests: dungeon scripts patched")
+
+    # ── 5. Dungeon shortcuts (AP options with the same names as shortcuts.SHORTCUTS)
+    import shortcuts
+    wanted = [name for name in shortcuts.SHORTCUTS if settings.get(name)]
+    if wanted:
+        shortcuts.apply(iso, wanted)
+        print("Dungeon shortcuts: " + ", ".join(wanted))
+
+    # ── 6. Hotspot elements by year (AP option Hotspot Elements). Last, since
+    # it grows the dungeon scripts the steps above edit by offset.
+    if placement_json.get("hotspot_elements"):
+        n = set_hotspot_elements(iso, placement_json["hotspot_elements"],
+                                 menus=placement_json.get("menu_elements"))
+        print(f"Hotspot elements: {n} hotspot(s) now change element by year")
 
     print(f"Hybrid AP patch complete: {total_slots} slot(s) written into {os.path.basename(iso)}.")
 
@@ -2813,7 +3405,7 @@ def cmd_ap_patch(iso, ref_iso):
     try:
         import customitem
         if customitem.ensure_ap_item(iso):
-            print("Installed AP Item into ISO (definition + name + icon).")
+            print("Installed AP Item into ISO (definition, name, icon and logo model).")
     except Exception as e:
         print(f"Note: could not auto-install AP Item ({e}); 0x162 must already be present.")
     try:
@@ -2947,7 +3539,7 @@ def main():
     p = argparse.ArgumentParser(description="Randomize FFCC chest contents in an ISO.")
     p.add_argument("command", choices=["list", "preview", "run", "spoiler", "export",
                                         "patch", "ap-patch", "ap-hybrid", "shops", "preview-shops",
-                                        "list-shops", "prices"])
+                                        "list-shops", "prices", "export-bonus"])
     p.add_argument("iso")
     p.add_argument("json", nargs="?", help="JSON file (for `patch`)")
     p.add_argument("--shop", action="append",
@@ -3014,6 +3606,11 @@ def main():
         if not args.ffcc or not os.path.isfile(args.ffcc):
             sys.exit("ap-hybrid needs --ffcc <seed.ffcc> (the Archipelago output file)")
         cmd_hybrid_patch(args.iso, args.ref, args.ffcc)
+    elif args.command == "export-bonus":
+        if not args.json:
+            sys.exit("export-bonus needs an output path: randomizer.py export-bonus <iso> <bonus_table.py>")
+        export_bonus_table(args.iso, args.json)
+        print("wrote", args.json)
     elif args.command == "list-shops":
         for base, name, _ in shops_in_iso(args.iso):
             print(f"  {base:12s} {name}")

@@ -1,8 +1,7 @@
 # Randomizing World Loading Zones
 
 How to make a world-map spot lead to a different dungeon, and the
-randomizer option that does it. All offsets are for the NTSC-US disc and
-were verified against it.
+randomizer option that does it. All offsets are for the NTSC-US disc.
 
 A **node** is a dungeon's spot on the world map, named here by the dungeon
 that sits there in vanilla. Putting dungeon **D** on node **N** takes three
@@ -233,8 +232,7 @@ the disc):
 
 ## Easy-to-get-wrong values
 
-These values have circulated incorrectly in community notes; the tables
-above are the verified ones.
+Some community notes list different values. The tables above match the disc.
 
 - **Completion flags:** Veo Lu Sluice is **D1** and Mount Kilanda **CE** (not the other way round). The worked example's ATTRIB edit is **C8 → D3**, not "20 → 2B".
 - **Menu names:** Conall Curach is **2B** and Rebena Te Ra **2C**. Value `28` is Selepation Cave, not the Mine.
@@ -292,4 +290,4 @@ difference (`u += dcol*256`, `v += drow*256`) and, if the cell is on the
 other plate, set the display list's material (first 2 bytes of its `DLST`)
 to 4 or 5. The file size doesn't change. `worldzones.apply_icons()` does this
 for a zone plan, and `icon_status()` reads back which building each stop shows.
-Tested in-game (Tipa's stop showing River Belle Path's building).
+For example, Tipa's stop can show River Belle Path's building this way.

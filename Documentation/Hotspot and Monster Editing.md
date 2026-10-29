@@ -130,6 +130,51 @@ should print exactly one changed offset. Then:
 py gciso.py inject "Your_test.iso" dvd/cft/river_0.cft river_0.cft
 ```
 
+### Elements that change every year
+
+`randomizer.set_hotspot_elements(iso, table)` (the AP option Hotspot
+Elements) makes a pool's element depend on the year. The table is
+`{dungeon: 4 rows of one element name per hotspot}`. Row 0 is used in
+Years 1, 5, 9…, row 1 in Years 2, 6…, and so on. Hotspots are numbered in
+the game's order: area file `_0`, `_1`… then call order inside
+`SPAWN_MONSTER`.
+
+1. Each call's element argument is replaced by its own number,
+   `HOTSPOT_FIRST_ID` (100) plus the hotspot's place in the dungeon. This is
+   the same size, the same 4-byte edit as above.
+2. `SPAWN_HOT_SPOT` opens with `if (!flag) return 0`. Right after that, a
+   chain of tests turns the number back into an element:
+
+   ```
+   if ((sysVal0 & 3) == y && arg0 == id) arg0 = element
+   ```
+
+   There is one test per year row and hotspot. `sysVal0` is the year (system
+   value -0x40). The chain is put in with `cftpatch.insert_code`, which moves
+   the function's own jumps along with it.
+3. The file grows by 55 bytes per test, so it is written back with
+   `gciso.put_file`.
+
+A file that already has numbered hotspots is refused, so the patch can't be
+applied twice. A pool's look is a particle effect named by slot in the
+record (12-15, or 16-19 for an area's second element) in that area's own
+particle file, which only holds its vanilla elements' effects, so it keeps
+its usual colour.
+
+The world map follows the same table:
+
+- **Name bubble:** `WM_mapInfoDispOn(place, bits, …)` shows `bits` as element
+  icons (Fire 1, Water 2, Wind 4, Earth 8, place = the dungeon's number). A
+  year chain at the top of the function sets `bits` from the place.
+- **"Change element" menus:** `MJ_SWING_ATTRIB_2` (two choices) and
+  `MJ_SWING_ATTRIB_1` (one) set the choices in `this.m41`/`m42` and the menu
+  text in `this.m43` (a `world.cfd` message) per stop (`G61`). A year chain
+  just before the "stage cleared?" test sets all three. The text is a copy of
+  the stop's own message with the element words swapped (colour codes
+  `FF AE` fire, `FF B1` water, `FF B0` wind, `FF B2` earth, `FF B3` back to
+  normal). These copies are appended to `world.cfd`'s `MES` block, which can
+  hold up to 1122 messages.
+
 ## Method 2 — replacing a monster
 
 **What the argument means:** `SPAWN` (the generic monster spawner) pushes a
@@ -226,11 +271,11 @@ Also worth printing the full set of monster IDs seen across all records first
 native to this dungeon) before picking a replacement.
 
 **2. Patch the same way as Method 1** — same `code_abs_offset()` +
-before/after-verified single-byte write (the monster ID is a 4-byte big-endian
+single-byte write, checked before and after (the monster ID is a 4-byte big-endian
 int right after a `03` opcode byte, exactly like the hotspot's element arg),
 same whole-file diff, same `gciso.py inject` into a test copy.
 
-## Worked example (verified in-game)
+## Worked example
 
 River Belle Path (`river_0.cft`), `SPAWN_MONSTER`:
 - Hotspot at code-offset `5757`, element changed from `2` (Water) to `1`

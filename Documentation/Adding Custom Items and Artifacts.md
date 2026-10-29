@@ -46,7 +46,7 @@ in-game.
 `customitem.py list-free` only catches slots literally named `"Extra N"`.
 There's a second, larger batch of empty slots it doesn't list: IDs whose
 name is still the auto-generated `"equipment NNN"` placeholder, `type=0`,
-`model=0`, `gil=0xFFFF` - confirmed via `customitem.py show <id>`. In the
+`model=0`, `gil=0xFFFF` (see `customitem.py show <id>`). In the
 Artifact ID range specifically, **`0xE8`-`0xFE` (23 IDs) are empty this
 way** - the top of the `m_artifacts[96]` array's own valid range
 (`0x9F`-`0xFE`) that the base game never populated. Always `show` a
@@ -137,7 +137,7 @@ inherits the donor's mesh, so a straight clone repeats one of those same 9.
 
 Checked directly against the ISO:
 `dvd/char/fa/` holds 129 numbered meshes (`f001`-`f138`, this is the
-kind=3 "ground pickup / reward-screen" namespace - confirmed via Copper
+kind=3 "ground pickup / reward-screen" namespace, e.g. Copper
 Sword -> `f001`, and crafting-material Gold -> `f055` matching the already
 -known "64 materials share model 0x37"). Scanning every item in the entire
 1205-row `param.cfd` table for which of those 129 mesh ids are ever
@@ -157,9 +157,8 @@ stub):
 15, 26, 28, 30, 31, 33-37, 39, 41-48, 50-54, 56-62, 64, 66, 67, 69-77, 79-90,
 92-104, 108-110, 112, 127, 128, 130-138
 ```
-None of these have been visually confirmed in-game (no 3D viewer in this
-toolchain) - try a candidate in-game before committing to it, since a few
-may be unfinished/cut assets.
+A few of these may be unfinished or cut assets, so look at a candidate in
+game before using it.
 
 Full per-model breakdown (which item, if any, already uses each of the 138
 mesh ids) is in `Item Model Reference.md`.

@@ -6,9 +6,6 @@ and description, which is what Dolphin's game list and game properties show.
 This page covers how the logo texture and banner work, and how to make a
 replacement image that looks right in game.
 
-**Status:** title logo confirmed in game (Dolphin). Disc name and banner
-written and read back from the ISO, not yet checked in Dolphin's game list.
-
 ## Where it is
 
 The title logo is texture `cc_logo01` in `dvd/menu/cc_logo.tex`, 576 × 224

@@ -9,7 +9,7 @@ TreasureBox block and the item API (SPAWN_TBOX, addItem, putDropItem), i.e. the
 chest / drop data.
 
 This is kept separate from tag.py on purpose: adding these tags to tag.py's
-valid-tag list could cause false-positive mis-parses in the (verified) texture
+valid-tag list could cause false-positive mis-parses in the texture
 pipeline. cft.py reuses the same parsing approach with an extended tag set.
 
 Usage (extract a file first with gciso.py, then point cft.py at it):
@@ -29,7 +29,7 @@ VM interpreter (CFlatRuntime::objectFrame / CFlatRuntime2::onSystemVal /
 onSetSystemVal in zcanann/FFCC-Decomp's reference-decomp, src/cflat_runtime.cpp
 and src/cflat_r2system.cpp). The interpreter's own opcode-length rule
 (cflat_runtime.cpp:1145): every opcode < 0x0C is 5 bytes (1 opcode byte + a
-4-byte big-endian argument word); every opcode >= 0x0C is a bare 1 byte, no
+4-byte big-endian argument word), and every opcode >= 0x0C is a bare 1 byte, no
 operand. A decoder must apply this to every opcode: treating only the push
 (0x03/0x04) and call (0x0a) opcodes as having operands silently desyncs the
 byte stream at the first other <0x0C opcode (0x00-0x02, 0x05-0x09, 0x0b).
@@ -44,13 +44,13 @@ byte stream at the first other <0x0C opcode (0x00-0x02, 0x05-0x09, 0x0b).
   0x03 PUSHI push int32       0x04 PUSHF push float32       0x05 PUSHI (alt)
   0x06 CTX   context switch (dynamic call frame rebind)
   0x07 JMP   unconditional jump (24-bit relative codeOffset)
-  0x08 JZ    pop; jump if zero          0x09 JNZ  pop; jump if nonzero
+  0x08 JZ    pop, jump if zero          0x09 JNZ  pop, jump if nonzero
   0x0a CALL  call (arg: low16=func index, high16=dispatch flag)
   0x0b NEW   createObject(classIndex)
   0x0c POP   0x0d STORE   0x0e ADDSTORE   0x0f SUBSTORE
   0x10 FSTORE  0x11 FADDSTORE  0x12 FSUBSTORE
   0x13/0x16 SETSYS=   0x14/0x17 SETSYS+=   0x15/0x18 SETSYS-=
-     (pop value + packed selector from 0x02; setMode 0/1/-1 into
+     (pop value + packed selector from 0x02, setMode 0/1/-1 into
       CFlatRuntime2::onSetSystemVal - this is how a chest-open flag or
       m_chaliceElement actually gets written)
   0x2c-0x37 comparisons (==, !=, <, <=, >, >=, int/float)
@@ -59,7 +59,7 @@ byte stream at the first other <0x0C opcode (0x00-0x02, 0x05-0x09, 0x0b).
 
 For a negative system-value index in (-1000, -500], CFlatRuntime2's handler
 treats it as a bit in `CGameWork::m_eventFlags[256]` (game.h, offset 0x10CC):
-    bitIndex = index + 0x9F3 ; byte = bitIndex // 8 ; bit = bitIndex % 8
+    bitIndex = index + 0x9F3, byte = bitIndex // 8, bit = bitIndex % 8
 This is the same generic flag bank `m_chaliceElement` (index -0x66) lives
 next to. (Chest-opened flags are kept elsewhere - see chestflags.py.) See
 `sysval_desc()` / `cmd_sysvals` below.
@@ -226,7 +226,7 @@ def disasm(code):
     """Yield (offset, opcode, arg) for one function's raw CODE bytes, using the
     real CFlat VM's fixed-width encoding (see module docstring / cft.py's
     opcode table): opcode < 0x0C carries a 4-byte big-endian signed argument
-    (5 bytes total); opcode >= 0x0C is a bare 1-byte opcode, arg=None.
+    (5 bytes total). Opcode >= 0x0C is a bare 1-byte opcode, arg=None.
     Every <0x0C opcode must be read as 5 bytes, or the stream desyncs."""
     i, n = 0, len(code)
     while i < n:
@@ -252,7 +252,7 @@ def sysval_desc(index):
         return "m_chaliceElement (1=fire,2=water,4=wind,8=earth,16=holy)"
     if -200 >= index > -0x1000:
         # handled by other named CGameWork fields (timerA, frameCounter, ...)
-        # or the -200..-999 m_eventWork[] table; not a boolean flag.
+        # or the -200..-999 m_eventWork[] table, not a boolean flag.
         return "(non-flag system value)"
     return "?"
 
@@ -260,7 +260,7 @@ def sysval_desc(index):
 def cmd_calls(path, funcname):
     """Disassemble one function's calls using the VM's opcode widths
     (see disasm()). Calls are resolved against the FUNC table by absolute
-    index; int/float pushed beforehand are shown as candidate operands."""
+    index. Int/float pushed beforehand are shown as candidate operands."""
     root, _ = parse(path)
     func = next((s for s in root.subtags if s.type == b"FUNC"), None)
     if func is None:
@@ -328,8 +328,7 @@ def cmd_sysvals(path, funcname):
             # SELV packs `index<<13 | classId` (see the module docstring), so
             # the index is arg >> 13, not arg >> 8 as for GET/GETA above. The
             # NTSC-US interpreter (fn_800B218C) decodes it with
-            # `srawi r26, r4, 0xd` (arithmetic shift by 13); verified with a
-            # Dolphin memory-breakpoint trace.
+            # `srawi r26, r4, 0xd` (arithmetic shift by 13).
             index = arg >> 13
             setop = next((o for (_, o, _) in ops[i + 1:i + 6]
                           if o in (0x13, 0x14, 0x15, 0x16, 0x17, 0x18)), None)
@@ -341,7 +340,7 @@ def cmd_sysvals(path, funcname):
 def str_table(data):
     """Return the file's top-level STR table as a list of bytes, indexed the
     way opcode 0x05 (push string) indexes it. Header: 'STR ', byte length,
-    string count; body is NUL-separated."""
+    string count. Body is NUL-separated."""
     pos = 0x10
     while pos + 16 <= len(data):
         tag = data[pos:pos + 4]
@@ -353,7 +352,7 @@ def str_table(data):
 
 
 def paramset_cases(path):
-    """Decode a stage's ParamSet function: a `DUP; PUSHI id; ==; JZ next`
+    """Decode a stage's ParamSet function: a `DUP, PUSHI id, ==, JZ next`
     switch on monster ID, one case per monster the stage can animate. Each
     case's loadAnim(clip, slot, flags, charaKind=-1, charaNo=-1) calls load
     `dvd/char/mon/mNNN/<clip>.cha` into an animation slot, where NNN is the

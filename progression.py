@@ -2,7 +2,7 @@
 progression.py - progression logic for the loading-zone shuffle and the
 stage-key chain: "can a player actually get through this seed?"
 
-Model (NTSC-US; see Documentation/Randomizing World Loading Zones.md):
+Model (NTSC-US, see Documentation/Randomizing World Loading Zones.md):
 
   * Every world-map spot belongs to a region. A region is entered from a
     neighbouring region, either through a Miasma Stream gate (one of the 4
@@ -13,11 +13,11 @@ Model (NTSC-US; see Documentation/Randomizing World Loading Zones.md):
     dungeon's own files, so they move with the dungeon in the shuffle.
   * Entering a dungeon needs its stage key (River Belle Path never does).
     In the key chain, clearing chain[i] gives the key for chain[i+1].
-  * The chalice keeps its element across the year change (confirmed in
-    game), so a year can start with any element set the year before.
+  * The chalice keeps its element across the year change, so a year can
+    start with any element set the year before.
   * Each year the chalice needs DROPS_PER_YEAR (3) drops, each from a
     different reachable dungeon whose tree isn't regrowing. In the game a
-    tree is back after 4 drops from other trees; this model uses the stricter
+    tree is back after 4 drops from other trees. This model uses the stricter
     "back in year y+2", which can only reject a valid seed, never pass a bad one.
   * The Unknown element (Lynari Desert) crosses every Miasma Stream. The
     Abyss (Mount Vellenge) needs it and Veo Lu Sluice cleared, and is the
@@ -26,16 +26,16 @@ Model (NTSC-US; see Documentation/Randomizing World Loading Zones.md):
 A seed passes if years 1-5 can each be finished and, in year 6, every
 dungeon (including Mount Vellenge) can be entered.
 
-Sources: in-game mapping of gate slots 0-2, the world-map guide and the
+Sources: the world-map guide and the
 5-year route guide (gamewith.net ffcc-remastered articles 21634 / 21108).
 
-Slot -> gate was mapped live in game (slots 0-2); slot 3 is the remaining
-rotating gate (assumed to be the Rebena Plains one by Daemon's Court). Region
-links and opening years follow the world-map guide; the ones not yet checked
-in game are marked "unconfirmed".
+Slots 0-2 map to known gates. Slot 3 is the remaining rotating gate
+(assumed to be the Rebena Plains one by Daemon's Court). Region links and
+opening years follow the world-map guide, and the uncertain ones are marked
+"unconfirmed".
 
 This logic is only applied to choices the randomizer makes itself. An
-imported JSON (e.g. from Archipelago) is applied as written; it can opt in
+imported JSON (e.g. from Archipelago) is applied as written. It can opt in
 with "_progression_logic": true for the parts it leaves random.
 """
 
@@ -70,9 +70,9 @@ SPOT_REGION = {
 # region: (entered from, gate slot or None, opening year, element needed, dungeon cleared first)
 REGION_ENTRY = {
     "tipa":      (None, None, 1, 0, None),
-    "iron":      ("tipa", 0, 1, 0, None),             # gate slot 0 (confirmed)
-    "alfitaria": ("iron", 1, 1, 0, None),             # gate slot 1 (confirmed)
-    "veolu":     ("alfitaria", 2, 1, 0, None),        # gate slot 2 (confirmed); neighbour unconfirmed
+    "iron":      ("tipa", 0, 1, 0, None),             # gate slot 0
+    "alfitaria": ("iron", 1, 1, 0, None),             # gate slot 1
+    "veolu":     ("alfitaria", 2, 1, 0, None),        # gate slot 2, neighbour unconfirmed
     "fum":       ("iron", None, 3, 0, None),          # Jegon River ferry, from year 3 (route guide)
     "rebena":    ("fum", 3, 1, 0, None),              # gate slot 3 (unconfirmed)
     "kilanda":   ("tipa", None, 4, 0, None),          # boat, from year 4 (route guide)
@@ -96,7 +96,7 @@ def _gate_element(gates, year, slot):
 def enterable(plan, chain, gates, year, goblin_year1=False, carried=0, with_elements=False):
     """Dungeons a player can enter in `year`, given every key obtainable that
     year (keys and elements are found by entering/clearing, not harvesting).
-    `plan` = {spot: dungeon}; `chain` = stage-key chain or None (no locks);
+    `plan` = {spot: dungeon}, `chain` = stage-key chain or None (no locks),
     `carried` = elements the chalice could hold coming into the year."""
     spot_of = {d: s for s, d in plan.items()}
     spot_of.setdefault("lava", "lava")
@@ -173,7 +173,7 @@ def check(plan, chain, gates=None, goblin_year1=False, drops=DROPS_PER_YEAR):
 def build_chain(rng, plan, gates=None, goblin_year1=False):
     """A stage-key chain that follows reachability: each next dungeon is a
     random one the player can already reach (by region, year and the
-    elements of the dungeons before it); the year only moves on when
+    elements of the dungeons before it). The year only moves on when
     nothing new is reachable. `check` still has the final say."""
     gates = gates or vanilla_gates()
     chain, year, carried = [ALWAYS_OPEN], 1, 0
@@ -197,7 +197,7 @@ def build_chain(rng, plan, gates=None, goblin_year1=False):
 def generate(rng, gates=None, goblin_year1=False, shuffle_zones=True, keys=True,
              fixed_zones=None, fixed_chain=None, tries=5000):
     """Random (plan, chain) that passes `check`. Fixed choices are kept as
-    given; only the rest is randomized. Raises if nothing passes."""
+    given, and only the rest is randomized. Raises if nothing passes."""
     import worldzones
     gates = gates or vanilla_gates()
     for _ in range(tries):

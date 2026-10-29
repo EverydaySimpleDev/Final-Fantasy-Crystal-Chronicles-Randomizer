@@ -106,7 +106,7 @@ class Tex:
                 else:
                     tex = {"name": name, "data": None}
             else:
-                # texture.py may return a dict that omits some properties; fill them in here
+                # texture.py may return a dict that omits some properties, so fill them in here
                 if not isinstance(tex, dict):
                     tex = {"data": tex}
                 if "width" not in tex:

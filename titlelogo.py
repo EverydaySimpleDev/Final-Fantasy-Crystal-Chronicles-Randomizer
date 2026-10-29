@@ -58,7 +58,7 @@ MAKER = "EverydaySimpleDev"
 
 def _fit(size, before, player="", after=""):
     """before + player + after as latin-1 bytes that fit in a `size`-byte
-    field with its closing zero. A long player name is shortened first; any
+    field with its closing zero. A long player name is shortened first, and any
     character the banner font can't show becomes '?'."""
     def encode(name):
         return (before + name + after).encode("latin-1", errors="replace")
@@ -161,7 +161,7 @@ def _banner_text(fields):
 
 def install(iso, player=None, seed=None, asset=ASSET, banner=BANNER_ASSET):
     """Write the title logo, the banner image and text, and the disc name
-    into the ISO; the names show `player` and `seed` when given (see texts).
+    into the ISO. The names show `player` and `seed` when given (see texts).
     Returns True if it changed anything, False if the ISO already has it all."""
     logo = open(asset, "rb").read()
     if len(logo) != PALETTE_SIZE + IMAGE_SIZE:
@@ -190,7 +190,7 @@ def install(iso, player=None, seed=None, asset=ASSET, banner=BANNER_ASSET):
     return changed
 
 
-# Building and previewing need Pillow; installing doesn't.
+# Building and previewing need Pillow, installing doesn't.
 
 def build(png, out=ASSET):
     """Fit a PNG into 576x224 (centred, aspect kept), reduce it to 256

@@ -5,16 +5,16 @@ stage geometry and textures, with the pixel position of every chest.
 Each dungeon area loads dvd/map/stgSSS/mapMMM (see Documentation/Map Folders
 by Stage.md):
 
-  mapMMM_K.mpl  geometry; the files read as one chunk stream in K order: VSET
+  mapMMM_K.mpl  geometry. The files read as one chunk stream in K order: VSET
                 (VERT f32 x/y/z, COLR RGBA8, UV f32 or s16/1024) and DSET
                 (DLHD > DLST display lists) pairs, a DSET using the most
-                recent VSET. A DLST starts with a u16 material index; its GX
+                recent VSET. A DLST starts with a u16 material index, and its GX
                 draw stream is the last `field1` bytes of the chunk. A vertex
                 is four u16 indices (position, normal, colour, UV), or five
                 when its material has two textures.
   mapMMM.otm    scene graph and materials. SCEN > NODE: PIDX (parent, pair
                 index, flags) and TFRM (translation, rotation in degrees with
-                R = Rz.Ry.Rx, scale); world = parent world . T.R.S, parents
+                R = Rz.Ry.Rx, scale), world = parent world . T.R.S, parents
                 first. SCEN > MSET > MATL: TIDX (texture indices, count in
                 field1).
   mapMMM_K.mtx  textures, one list in K order: TSET > TXTR (NAME, FMT, SIZE
@@ -43,8 +43,8 @@ Drawn on top of each area:
              and from B to A are paired in order of their entry numbers.
              Exits to the boss and the world map have no letter.
              Reading them needs the CFlat decompiler (tools/cflat/cflat.py in
-             the decomp project, found next to this repo or via FFCC_CFLAT);
-             without it the exits are left off.
+             the decomp project, found next to this repo or via FFCC_CFLAT).
+             Without it the exits are left off.
   hotspots   a diamond in the element's colour (SPAWN_HOT_SPOT type
              1 Fire, 2 Water, 3 Wind, 4 Earth, 5 Unknown)
   monsters   a letter per monster type at each spawn, with a legend
@@ -54,10 +54,12 @@ so the pack can switch between them.
 
     py stagemap.py render ISO SCRIPT AREA out.png    # one area, chests marked
     py stagemap.py tracker ISO OUT_DIR               # every dungeon + stagemaps.json
+    py stagemap.py monster-pins ISO stagemaps.json   # add "monster_pins" ("<area file>#<entry>": [x, y])
+    py stagemap.py towns ISO OUT_DIR                 # every town with its shops + towns.json
 
 stagemaps.json: {dungeon: {"img": plain image, "variants": {suffix: image},
                            "size": [w, h], "pins": {chest number: [[x, y], ...]}}}
-(a chest with several possible spots has several pins; a monster's cycles
+(a chest with several possible spots has several pins, and a monster's cycles
 come from its SPAWN record's cycle bits, the same bits chests use).
 """
 
@@ -81,7 +83,7 @@ import otm
 import randomizer
 import spawn_map
 
-# dungeon script -> dvd/map/stgSSS folder; area N loads mapN unless listed here
+# dungeon script -> dvd/map/stgSSS folder. Area N loads mapN unless listed here
 STAGES = {"river": 23, "gob": 24, "mine": 3, "kinoko": 16, "ruin": 25, "gigas": 26,
           "lava": 15, "fort": 28, "cave": 27, "water": 29, "desert": 14, "swamp": 2,
           "city": 30, "meteo": 31}
@@ -448,12 +450,12 @@ def _draw(canvas, stage, maps, bounds, ceiling, to_px, skip=None):
                 canvas.triangle(xy, q[:, 1], shade, uv, tex)
 
 
-def render_area(iso, script, disc, area, tile=TILE):
-    """(image, to_pixel(x, z)) for one dungeon area file."""
-    tmp = os.path.join(tempfile.gettempdir(), "stagemap_" + os.path.basename(disc))
-    randomizer._extract(iso, disc, tmp)
-    spots = [(c["world"]["x"], c["world"]["y"], c["world"]["z"]) for c in spawn_map.chests(tmp)]
-    spots += [(m["world"]["x"], m["world"]["y"], m["world"]["z"]) for m in spawn_map.monsters(tmp)]
+def _area_frame(path, script, area, tile=TILE):
+    """What one area's image covers, from the area file at `path`: (bounds,
+    ceiling, (width, height), to_pixel(x, z)). The image spans every chest
+    and monster spot, plus a margin, so it needs no geometry."""
+    spots = [(c["world"]["x"], c["world"]["y"], c["world"]["z"]) for c in spawn_map.chests(path)]
+    spots += [(m["world"]["x"], m["world"]["y"], m["world"]["z"]) for m in spawn_map.monsters(path)]
     pts = np.array(spots, float)
     ceiling = pts[:, 1].max() + CEILING
     x0, z0 = pts[:, [0, 2]].min(0)
@@ -470,7 +472,16 @@ def render_area(iso, script, disc, area, tile=TILE):
         px, py = (x - x0) * scale, (z - z0) * scale
         return [(px, py), (h - py, px), (w - px, h - py), (py, w - px)][turns]
 
-    canvas = _Canvas(*((h, w) if turns % 2 else (w, h)))
+    size = (h, w) if turns % 2 else (w, h)
+    return (x0, z0, x1, z1), ceiling, size, to_px
+
+
+def render_area(iso, script, disc, area, tile=TILE):
+    """(image, to_pixel(x, z)) for one dungeon area file."""
+    tmp = os.path.join(tempfile.gettempdir(), "stagemap_" + os.path.basename(disc))
+    randomizer._extract(iso, disc, tmp)
+    (x0, z0, x1, z1), ceiling, size, to_px = _area_frame(tmp, script, area, tile)
+    canvas = _Canvas(*size)
     maps = AREA_MAPS.get((script, area), [area])
     _draw(canvas, Stage(iso, STAGES[script]), maps, (x0, z0, x1, z1), ceiling, to_px,
           {mp: SKIP_PAIRS.get((script, mp), ()) for mp in maps})
@@ -564,7 +575,7 @@ def exit_quads(stage, maps):
 
 def _branches(text):
     """[(z bound or None, destination, entry)] of one mainMapJump case. Most
-    cases load one script; a case whose trigger covers a whole wall of doors
+    cases load one script. A case whose trigger covers a whole wall of doors
     (Moschet Manor's hall) picks the room by the player's Z instead:
     `if (posZ < -600) load A else if (posZ < -450) load B ... else load D`."""
     out, bound, entry = [], None, None
@@ -584,7 +595,7 @@ def _branches(text):
 def _wall_exits(cases, free, rooms):
     """[(x, z, destination, entry)] for jump cases that pick the room by Z.
     Each such case gets the column of triggers (same x) that has one trigger
-    per branch and lies nearest the rooms it leads to; other cases then take
+    per branch and lies nearest the rooms it leads to. Other cases then take
     the trigger nearest their room, and a last case leading outside takes
     the one trigger left."""
     out = []
@@ -633,7 +644,7 @@ def area_exits(path, quads=(), rooms=None):
     """[(x, z, destination script, entry number)] for the exits of one area
     script, or None when the decompiler isn't available. `quads` are the exit
     triggers from the collision data (exit_quads): an exit whose camera point
-    is known goes on the nearest trigger; the triggers left over are given to
+    is known goes on the nearest trigger, and the triggers left over are given to
     the exits without a camera point when those all lead to the same place.
     `rooms` ({script: (x, z)}) places a hall's wall of doors (_wall_exits)."""
     cflat = _decompiler()
@@ -897,7 +908,7 @@ def _legend_rows(entries, width, font):
 
 def _marked_tile(base, monsters, hotspots, letters, cycles, show_hotspots, legend_height):
     """A copy of an area image with monster letters (those spawning in any of
-    `cycles`; none if cycles is empty) and/or hotspot icons drawn on it, and a
+    `cycles`, none if cycles is empty) and/or hotspot icons drawn on it, and a
     legend strip of `legend_height` below (the same height for every
     variant, so chest pins stay put)."""
     small, letter_font = _font(15), _font(14)
@@ -939,28 +950,83 @@ VARIANTS = [(f"{h}{e}", cycles, h == "h")
             for e, cycles in (("", ()), ("e", (1, 2, 3)), ("e1", (1,)), ("e2", (2,)), ("e3", (3,)))]
 
 
-def render_dungeon(iso, script, tile=TILE, gap=24, label_height=44, variants=(("he", (1, 2, 3), True),)):
-    """({suffix: image}, {chest: [(x, y), ...]}) - the dungeon's areas side by
-    side (up to three per row), each labelled, with exit boxes; one image per
-    variant (suffix, enemy cycles shown, hotspots shown). Chest pixel spots
-    are the same in every variant."""
+def _dungeon_areas(iso, script):
+    """(discs, chests, {area: extracted path}, areas on the map): the areas
+    with chests, and the rooms between them that only have monsters (the
+    areas after the last chest are the boss rooms)."""
     discs = chestflags.dungeon_discs(iso, script)
     chests = chestflags.canonical(iso, script, discs)
-    chest_of = {(c["area"], f): c["chest"] for c in chests for f in c["flags"]}
     paths = {}
     for disc in discs:
         area = randomizer._area_no(disc)
         paths[area] = os.path.join(tempfile.gettempdir(), "stagemap_" + os.path.basename(disc))
         randomizer._extract(iso, disc, paths[area])
-    # areas with chests, and the rooms between them that only have monsters
-    # (the areas after the last chest are the boss rooms)
     last = max(c["area"] for c in chests)
     areas = sorted({c["area"] for c in chests} |
                    {a for a, p in paths.items() if a < last and spawn_map.monsters(p)})
+    return discs, chests, paths, areas
+
+
+def _legend_height(monsters, hotspots, letters, width):
+    """Room under an area for the longest legend any variant can show."""
+    everything = [(letters[n], f"{n} ×{c}", None)
+                  for n, c in collections.Counter(n for n, _, _ in monsters).items()]
+    everything += [("", f"{ELEMENTS[e][0]} hotspot", e) for e in {e for e, _ in hotspots} if e in ELEMENTS]
+    rows, _ = _legend_rows(everything, width, _font(15))
+    return rows * 24 + 12 if rows else 0
+
+
+def monster_pins(iso, script, tile=TILE, gap=24, label_height=44):
+    """{"<area file>#<entry>": (x, y)} - where each monster of the map's areas
+    is on the dungeon's map image (as render_dungeon lays it out), worked out
+    from the spawn positions alone. Boss rooms aren't on the map."""
+    discs, _, paths, areas = _dungeon_areas(iso, script)
+    frames, sizes = {}, {}
+    for disc in discs:
+        area = randomizer._area_no(disc)
+        if area not in areas:
+            continue
+        _, _, (w, h), to_px = _area_frame(paths[area], script, area, tile)
+        monsters, hotspots = _area_markers(paths[area], to_px)
+        legend = _legend_height(monsters, hotspots, _letters(monsters), w)
+        frames[area] = (os.path.splitext(os.path.basename(disc))[0], to_px)
+        sizes[area] = (w, h + legend + label_height)
+    place, _, _ = _layout(script, [a for a in areas if a in frames], sizes, gap)
+    pins = {}
+    for area, (name, to_px) in frames.items():
+        x, y = place[area]
+        for m in spawn_map.monsters(paths[area]):
+            px, py = to_px(m["world"]["x"], m["world"]["z"])
+            pins[f"{name}#{m['entry']}"] = (int(x + px), int(y + label_height + py))
+    return pins
+
+
+def add_monster_pins(iso, index_path):
+    """Add every dungeon's monster pins ("monster_pins", in the tracker
+    images' pixels) to an existing stagemaps.json, without drawing anything."""
+    import lootcft
+    index = json.load(open(index_path, encoding="utf-8"))
+    for script, name in lootcft.DUNGEONS:
+        if name not in index:
+            continue
+        pins = monster_pins(iso, script)
+        index[name]["monster_pins"] = {k: [round(x * TRACKER_SCALE), round(y * TRACKER_SCALE)]
+                                       for k, (x, y) in sorted(pins.items())}
+        print(f"  {name}: {len(pins)} monster pin(s)")
+    with open(index_path, "w", encoding="utf-8") as f:
+        json.dump(index, f, indent=1)
+
+
+def render_dungeon(iso, script, tile=TILE, gap=24, label_height=44, variants=(("he", (1, 2, 3), True),)):
+    """({suffix: image}, {chest: [(x, y), ...]}) - the dungeon's areas side by
+    side (up to three per row), each labelled, with exit boxes. One image per
+    variant (suffix, enemy cycles shown, hotspots shown). Chest pixel spots
+    are the same in every variant."""
+    discs, chests, paths, areas = _dungeon_areas(iso, script)
+    chest_of = {(c["area"], f): c["chest"] for c in chests for f in c["flags"]}
     exits = dungeon_exits(iso, paths, script, set(areas))
     if exits is None:
         print(f"  (exits left off: no CFlat decompiler at {CFLAT})")
-    small = _font(15)
     tiles = []
     for disc in discs:
         area = randomizer._area_no(disc)
@@ -970,12 +1036,7 @@ def render_dungeon(iso, script, tile=TILE, gap=24, label_height=44, variants=(("
         _draw_exits(img, (exits or {}).get(area, []), to_px, _font(20))
         monsters, hotspots = _area_markers(paths[area], to_px)
         letters = _letters(monsters)
-        # room for the longest legend any variant can show
-        everything = [(letters[n], f"{n} ×{c}", None)
-                      for n, c in collections.Counter(n for n, _, _ in monsters).items()]
-        everything += [("", f"{ELEMENTS[e][0]} hotspot", e) for e in {e for e, _ in hotspots} if e in ELEMENTS]
-        rows, _ = _legend_rows(everything, img.width, small)
-        legend = rows * 24 + 12 if rows else 0
+        legend = _legend_height(monsters, hotspots, letters, img.width)
         tiles.append((area, img, to_px, _chest_spots(iso, disc), monsters, hotspots, letters, legend))
     sizes = {t[0]: (t[1].width, t[1].height + t[7] + label_height) for t in tiles}
     place, width, height = _layout(script, [t[0] for t in tiles], sizes, gap)
@@ -1016,7 +1077,7 @@ LAYOUT = {
 def _layout(script, areas, sizes, gap):
     """({area: (x, y)}, width, height) for tiles of `sizes` ({area: (w, h)}).
     Columns from LAYOUT, each tile centred in its column (areas LAYOUT
-    doesn't name go in a last column); otherwise rows of up to three."""
+    doesn't name go in a last column), otherwise rows of up to three."""
     place = {}
     columns = LAYOUT.get(script)
     if columns:
@@ -1068,6 +1129,81 @@ def write_tracker_maps(iso, out_dir):
         json.dump(index, f, indent=1)
 
 
+# Towns with shops that are checks (shopchecks.py): town -> (stage, map)
+TOWNS = {"Marr's Pass": (4, 0), "Alfitaria": (5, 0),
+         "Fields of Fum": (6, 0), "Shella": (7, 0), "Leuda": (8, 0)}
+# shop key -> (box label, x, z): where the shopkeeper stands, from the setPos
+# in its town script's NPC class
+SHOP_SPOTS = {
+    "marrs_pass":          ("Materials", 78.7, -7.77),     # odd years only
+    "alfitaria_food":      ("Food", -207.45, -40.29),
+    "alfitaria_materials": ("Materials", -57.22, 95.68),   # even years only
+    "fum_food":            ("Food", 65.7, -5.69),
+    "fum_materials":       ("Materials", -19.51, -215.45), # odd years only
+    "shella":              ("Shop", -110.0, 410.91),
+    "leuda_recipes":       ("Recipes", 80.83, 4.91),
+    "leuda_materials":     ("Materials", -29.03, 60.52),
+}
+TOWN_SPAN = (2, 98)   # percentiles of the town's geometry the image covers
+SHOP_BOX = 22         # half the size of a shop's box, in pixels
+SHOP_GREEN = (60, 230, 90)
+
+
+def render_town(iso, town, tile=TILE):
+    """(image, {shop key: (px, py)}): the town from above with a green box
+    at each shop. Towns have no chests to frame the image, so it covers
+    most of the town's geometry instead, roofs included."""
+    import shopchecks
+    stage_no, mp = TOWNS[town]
+    stage = Stage(iso, stage_no)
+    pairs = stage.pairs(mp)
+    pts = []
+    for pair, world in stage.instances(mp):
+        p = pairs[pair] if pair < len(pairs) else None
+        if p is None or p["verts"] is None or p["cols"] is None:
+            continue
+        pts.append((np.c_[p["verts"], np.ones(len(p["verts"]))] @ world.T)[:, :3])
+    pts = np.vstack(pts)
+    (x0, _, z0), (x1, _, z1) = np.percentile(pts, TOWN_SPAN[0], axis=0), np.percentile(pts, TOWN_SPAN[1], axis=0)
+    scale = tile / max(x1 - x0, z1 - z0)
+
+    def to_px(x, z):
+        return (x - x0) * scale, (z - z0) * scale
+
+    canvas = _Canvas(int((x1 - x0) * scale), int((z1 - z0) * scale))
+    _draw(canvas, stage, [mp], (x0, z0, x1, z1), math.inf, to_px)
+    img = canvas.image()
+    draw = ImageDraw.Draw(img)
+    font = _font(20)
+    spots = {}
+    for key, (label, x, z) in SHOP_SPOTS.items():
+        if shopchecks.SHOPS[key][1] != town:
+            continue
+        px, py = to_px(x, z)
+        spots[key] = (px, py)
+        draw.rectangle([px - SHOP_BOX, py - SHOP_BOX, px + SHOP_BOX, py + SHOP_BOX], outline=SHOP_GREEN, width=5)
+        draw.text((px, py + SHOP_BOX + 4), label, fill=(255, 255, 255), font=font, anchor="ma",
+                  stroke_width=3, stroke_fill=(0, 0, 0))
+    return img, spots
+
+
+def write_town_maps(iso, out_dir):
+    """Every town's map image (town_<stage>.jpg) plus towns.json:
+    {town: {"img": file, "size": [w, h], "pins": {shop key: [x, y]}}}."""
+    os.makedirs(out_dir, exist_ok=True)
+    index = {}
+    for town, (stage_no, _) in TOWNS.items():
+        img, spots = render_town(iso, town)
+        file = f"town_{stage_no:03d}.jpg"
+        small = img.resize((round(img.width * TRACKER_SCALE), round(img.height * TRACKER_SCALE)), Image.LANCZOS)
+        small.save(os.path.join(out_dir, file), quality=TRACKER_QUALITY, optimize=True)
+        index[town] = {"img": file, "size": list(small.size),
+                       "pins": {k: [round(x * TRACKER_SCALE), round(y * TRACKER_SCALE)] for k, (x, y) in spots.items()}}
+        print(f"  {town}: {small.width}x{small.height}, {len(spots)} shop(s)")
+    with open(os.path.join(out_dir, "towns.json"), "w", encoding="utf-8") as f:
+        json.dump(index, f, indent=1)
+
+
 if __name__ == "__main__":
     if len(sys.argv) == 6 and sys.argv[1] == "render":
         iso, script, area, out = sys.argv[2], sys.argv[3], int(sys.argv[4]), sys.argv[5]
@@ -1085,5 +1221,9 @@ if __name__ == "__main__":
         print("wrote", out)
     elif len(sys.argv) == 4 and sys.argv[1] == "tracker":
         write_tracker_maps(sys.argv[2], sys.argv[3])
+    elif len(sys.argv) == 4 and sys.argv[1] == "monster-pins":
+        add_monster_pins(sys.argv[2], sys.argv[3])
+    elif len(sys.argv) == 4 and sys.argv[1] == "towns":
+        write_town_maps(sys.argv[2], sys.argv[3])
     else:
         print(__doc__)

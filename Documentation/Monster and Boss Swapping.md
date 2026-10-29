@@ -16,11 +16,11 @@ Everything here was checked against the NTSC-US disc, all 132
 
 | What | Status |
 |---|---|
-| A field monster moved to another stage (Cactuar into River Belle Path) | Verified in-game: animations, attacks, hitboxes and its own sounds all work |
-| A boss moved to another arena (Orc King into River Belle Path's boss room) | Verified in-game: fights normally and can be beaten |
-| A boss with summons (Lich and its skeletons into River Belle Path's boss room) | Verified in-game: Lich, skeletons, summons and magic all work |
+| A field monster moved to another stage (Cactuar into River Belle Path) | Works: animations, attacks, hitboxes and its own sounds all work |
+| A boss moved to another arena (Orc King into River Belle Path's boss room) | Works: fights normally and can be beaten |
+| A boss with summons (Lich and its skeletons into River Belle Path's boss room) | Works: Lich, skeletons, summons and magic all work |
 | Lich's orb shield and teleport, ported to another arena | Built; see [Bosses with special mechanics](#bosses-with-special-mechanics-lich) |
-| Lich's orbs protecting a different boss | Verified in-game: the boss is protected until the orbs break, with no shield visual |
+| Lich's orbs protecting a different boss | Works: the boss is protected until the orbs break, with no shield visual |
 | Randomizer boss shuffle (GUI checkbox / JSON) | EXPERIMENTAL: all 156 boss-into-arena combinations build and pass structural checks; not every combination has been played |
 
 If you only change a monster's ID in a `SPAWN` record, a monster the stage
@@ -439,8 +439,8 @@ The final placement is appended to the spoiler file.
 
 ## 5. Bytecode notes
 
-Details confirmed against the VM in the decomp (`cflat_runtime.cpp`) that
-matter when writing or copying code:
+Details of the VM in the decomp (`cflat_runtime.cpp`) that matter when
+writing or copying code:
 
 - **Instruction width:** opcodes below `0x0C` are 5 bytes (opcode plus a
   4-byte big-endian argument). Everything else is 1 byte.

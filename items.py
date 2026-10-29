@@ -1,7 +1,7 @@
 """
 items.py - Read/edit FFCC's item-definition table (dvd/cft/param.cfd).
 
-Each item is a 72-byte (0x48) record; the table holds 1205 entries (IDs
+Each item is a 72-byte (0x48) record. The table holds 1205 entries (IDs
 0x0000-0x04B4). IDs are the game's item IDs, named in ffcc_items.py
 (e.g. 0x0001 Copper Sword, 0x0125 Phoenix Down, 0x0100 Stone of Fire).
 
@@ -18,8 +18,8 @@ Commands:
 
 Named fields (offset,size): type(0,2) model(2,2) equiptype(4,1)
     equipability(5,1) value(6,2) status/bonus(8,2) focus/spell(10,2)
-    gfxsize(16,2) gil(32,2); scroll recipes: craftgil mat1-3 qty1-3
-    clavat lilty yuke selkie; spells/focus attacks: chargetime range
+    gfxsize(16,2) gil(32,2). Scroll recipes: craftgil mat1-3 qty1-3
+    clavat lilty yuke selkie. Spells/focus attacks: chargetime range
     - or address any byte with 0xOFF[:size], e.g. 0x06:2
 Full per-category layout: Documentation/Item Records and Magic Fusion.md
 """

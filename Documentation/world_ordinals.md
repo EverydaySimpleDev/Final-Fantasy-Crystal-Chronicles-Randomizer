@@ -2,7 +2,7 @@
 
 Extracted **630 ordinals** from `world.cft`.
 
-Verified against the extracted `world.cft` with `cft.py`'s FUNC-table
+Read from the extracted `world.cft` with `cft.py`'s FUNC-table
 parser: all 630 entries present, with 17 spot-checked across the whole range (`director`, `onWorldParam`, `loadCFlat`, the full
 `SPAWN`/`SPAWN_POT`/`SPAWN_HOT_SPOT`/`SPAWN_LAVA_HOLE`/`SPAWN_TBOX`/
 `SPAWN_SWITCH_SPHERE` family, `get_treasure`, `changeYear`, `SPAWN_PLAYER`,

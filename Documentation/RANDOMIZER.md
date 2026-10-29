@@ -279,8 +279,8 @@ py objimport.py roundtrip "w001_root.chm"               # self-test (byte-identi
 py gciso.py inject "copy.iso" dvd/char/wep/w001/w001_root.chm "w001_root_new.chm"
 ```
 
-- `chmio.py` is the byte-exact container reader/writer underneath (verified
-  byte-identical on all 3,864 model/texture files).
+- `chmio.py` is the byte-exact container reader/writer underneath (it writes
+  all 3,864 model/texture files back byte-identical).
 `import` is topology-preserving (move/scale/morph existing vertices only). To put
 in a **completely new mesh** (different vertex/face count), use `newmesh`:
 

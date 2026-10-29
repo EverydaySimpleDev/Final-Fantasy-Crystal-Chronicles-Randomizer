@@ -12,7 +12,7 @@ with raw runs at the same level), .otm chunk nesting is unambiguous: a
 chunk's own tag tells you whether its payload is itself a sequence of
 sub-chunks (CONTAINER) or raw leaf data (VERT/NORM/UV/DLST/...). So we
 recurse only into known containers and keep everything else as an opaque
-byte blob - verified byte-exact round-trip on real map000.otm/map002.otm.
+byte blob, so an unmodified file round-trips byte-exact.
 """
 
 import struct
@@ -63,7 +63,7 @@ class Chunk:
     def serialize(self):
         body = self.content()
         # Keep the original pad bytes if content size is unchanged (byte-exact
-        # round-trip); otherwise recompute zero-padding to the 16-byte boundary.
+        # round-trip), otherwise recompute zero-padding to the 16-byte boundary.
         if len(body) == self._clen:
             pad = self.pad
         else:
@@ -143,8 +143,8 @@ def read_colors(node):
 
 def read_uvs(node):
     """UV payload -> [(u, v), ...] of signed int16. NOTE: the fixed-point
-    scale to normalize these hasn't been confirmed yet (unlike CHM's UV,
-    which is a known /4096) - treat exported vt values as unverified."""
+    scale to normalize these is not known (unlike CHM's UV, which is a
+    known /4096) - treat exported vt values as approximate."""
     b = node.content()
     return [struct.unpack(">hh", b[i:i + 4]) for i in range(0, len(b) - len(b) % 4, 4)]
 

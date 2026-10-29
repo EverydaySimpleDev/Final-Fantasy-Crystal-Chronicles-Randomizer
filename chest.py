@@ -8,7 +8,7 @@ of the dungeon's chests. The game rolls a set per cycle. A chest record is a
 chest index is the byte at +0x49 (1..N). Sets are runs whose +0x49 goes 1..N.
 
 Each set is category-homogeneous and its load-time setup is category-specific:
-swapping an item WITHIN its category is safe; a wrong-category or out-of-range
+swapping an item WITHIN its category is safe, but a wrong-category or out-of-range
 value can make the chest drop nothing OR crash the level on load. So edit slots
 within their category. (Item IDs: see ffcc_items.py.)
 
@@ -19,7 +19,7 @@ Workflow (fixed-size, re-inject in place):
     python chest.py set river_0.cft 0x105 0x107       # bulk: every Stone of Cure -> Life
     python gciso.py inject "Hacked Rom.iso" dvd/cft/river_0.cft river_0.cft
 
-Note: the 0x5b stride / +0x49 index are confirmed for River Belle Path; other
+Note: the 0x5b stride / +0x49 index are known for River Belle Path. Other
 dungeons may use a different record size (pass --stride / --idxoff to tune).
 """
 

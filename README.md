@@ -145,12 +145,12 @@ export to see the current state, edit, patch to apply):
 | --- | --- | --- |
 | Mog never gets tired | `_mog_never_tired` (bool) | Removes the stamina penalty for running while Mog carries the chalice. Start.dol patch. |
 | Starting location | `_starting_location` (name) | Start a new game at Tipa (default), Marr's Pass, Alfitaria, or Fields of Fum instead of always Tipa. Limited to towns where Year 1 is completable. |
-| Skip Meteor Parasite → Mio questions → Raem | `_skip_mio_questions` (bool) | Jumps straight from the Meteor Parasite fight to the Raem fight. **Experimental** — not yet confirmed safe across a full playthrough; flagged in red in the GUI. |
-| Skip the opening intro cutscene | `_skip_intro_cutscene` (bool) | Jumps straight past the opening cutscene on a new game. Confirmed working in-game. |
-| Show Goblin Wall on the map from Year 1 | `_goblin_wall_always_visible` (bool) | Reveals Goblin Wall's road/icon on the world map starting Year 1, instead of waiting for the Year 1→2 transition. Doesn't change the Year value or anything else — patches the two `currentYear >= 2` checks in `world.cft` that gate the reveal. Confirmed working in-game. |
-| Randomize Miasma Stream elements | `_randomize_miasma_elements` (bool) | Shuffles which element (Fire/Water/Wind/Earth) each of the 4 rotating Miasma Streams requires each year, seeded like the rest of the randomizer. **Requires `_goblin_wall_always_visible` to also be set** — that's what guarantees Fire and Earth (Goblin Wall's own hotspots) are obtainable from Year 1, alongside River Belle Path's Water/Wind, so every element is always reachable regardless of the shuffle. Patch is skipped (with a log warning) if the other option isn't also enabled. **Experimental** — confirmed working for a single-slot manual test in-game; not yet confirmed safe across a full playthrough. |
+| Skip Meteor Parasite → Mio questions → Raem | `_skip_mio_questions` (bool) | Jumps straight from the Meteor Parasite fight to the Raem fight. **Experimental**: may leave state the Mio questions would normally set unset. Flagged in red in the GUI. |
+| Skip the opening intro cutscene | `_skip_intro_cutscene` (bool) | Jumps straight past the opening cutscene on a new game. |
+| Show Goblin Wall on the map from Year 1 | `_goblin_wall_always_visible` (bool) | Reveals Goblin Wall's road/icon on the world map starting Year 1, instead of waiting for the Year 1→2 transition. Doesn't change the Year value or anything else — patches the two `currentYear >= 2` checks in `world.cft` that gate the reveal. |
+| Randomize Miasma Stream elements | `_randomize_miasma_elements` (bool) | Shuffles which element (Fire/Water/Wind/Earth) each of the 4 rotating Miasma Streams requires each year, seeded like the rest of the randomizer. **Requires `_goblin_wall_always_visible` to also be set** — that's what guarantees Fire and Earth (Goblin Wall's own hotspots) are obtainable from Year 1, alongside River Belle Path's Water/Wind, so every element is always reachable regardless of the shuffle. Patch is skipped (with a log warning) if the other option isn't also enabled. **Experimental**. |
 | Bonus Pools | `_randomize_bonus_pools` (bool) + `_bonus_pools` (per-dungeon override) | Randomizes the end-of-dungeon score-reward pool (separate from chests/enemy drops — see Notes below). `_bonus_pools` lets you hand-set exact items per dungeon/entry instead of (or on top of) randomizing; export a fresh JSON to see the current pool for every dungeon. |
-| Lock stages behind key artifacts | `_stage_key_locks` (bool) | Creates 14 new key artifacts (one per dungeon) and hides each one in a handful of chests (never enemy drops) across a randomized, always-solvable chain — River Belle Path always stays open, and no dungeon's key is ever placed inside that same dungeon. **Experimental** — 6 of the 13 gated dungeons (Goblin Wall, Veo Lu Sluice, Moschet Manor, Tida, Mine of Cathuriges, Mushroom Forest) are confirmed working in-game (covering all three underlying lock mechanisms used); the remaining 7 (Selepation Cave, Daemon's Court, Conall Curach, Rebena Te Ra, Mount Vellenge, Mount Kilanda, Lynari Desert) are statically verified byte-exact but **not yet confirmed in-game** — treat those as unvalidated until spot-checked. Mount Kilanda's lock site was identified by inference rather than from a known reference, so it's worth extra scrutiny. |
+| Lock stages behind key artifacts | `_stage_key_locks` (bool) | Creates 14 new key artifacts (one per dungeon) and hides each one in a handful of chests (never enemy drops) across a randomized, always-solvable chain — River Belle Path always stays open, and no dungeon's key is ever placed inside that same dungeon. **Experimental**. All 13 gated dungeons check for their key on entry. |
 | Enable developer debug menu | `_enable_debug_menu` (bool) | Unlocks the game's hidden "Development Mode" debug menu (9 Start.dol patches, derived from published Action Replay codes). **Experimental** — see below for how to use it. |
 
 These are all independent of chest/item randomization and of each other —
@@ -184,7 +184,7 @@ to a second physical pad, or a second keyboard/controller profile). On Port 2:
 `A` opens the debug menu, `B` closes it, D-pad Up/Down moves the selection,
 and `A`/`B` toggles the highlighted entry. It's a leftover QA test-flag menu
 (invincibility, collision checks, particle/shadow toggles, and more) — it is
-**not** confirmed to include a working free-roam camera, and some entries may
+**not** known to include a working free-roam camera, and some entries may
 do nothing or destabilize the game. Treat it as a fun bonus for explorers, not
 a reliable tool.
 
@@ -340,8 +340,8 @@ py objimport.py roundtrip "w001_root.chm"               # self-test (byte-identi
 py gciso.py inject "copy.iso" dvd/char/wep/w001/w001_root.chm "w001_root_new.chm"
 ```
 
-- `chmio.py` is the byte-exact container reader/writer underneath (verified
-  byte-identical on all 3,864 model/texture files).
+- `chmio.py` is the byte-exact container reader/writer underneath (it writes
+  all 3,864 model/texture files back byte-identical).
   `import` is topology-preserving (move/scale/morph existing vertices only). To put
   in a **completely new mesh** (different vertex/face count), use `newmesh`:
 
@@ -383,6 +383,15 @@ py customitem.py list-free|show|add "<iso>" ...              # add a custom item
 py tex.py export|import <file.tex> ...                       # edit textures (PNG round-trip)
 py titlelogo.py build|install|preview ...                   # title logo, disc name and banner (see Documentation/Title Screen Logo.md)
 py equipment.py show|export <iso> [equipment_table.py]       # progressive equipment upgrade paths for the AP world
+py chestcolors.py build|install <iso>                       # gold chest texture for important items (AP option Chest Color Matches Contents)
+py shortcuts.py apply <iso> <option> [<option> ...]            # dungeon shortcuts (AP options of the same names)
+py itemicons.py export <iso> <out_dir> [item ids...]          # item icons as PNGs (the tracker pack's images/bonus)
+py apmodel.py build|install <iso>                            # the AP Item's 3D model, the Archipelago logo (installed with the AP Item)
+py monsterhunt.py list|export <iso or cft dir> [monster_table.py]  # the AP world's Monster Hunt enemy list
+py hidechests.py apply|hide-all <iso>                         # hide chests whose check is done (AP option Hide Collected Chests), or every chest (Monster Hunt Checks)
+py shopchecks.py list|export <iso> [shop_table.py]           # shop slots as checks (AP option Shop Checks), the AP world's shop list
+py stagemap.py towns <iso> <out_dir>                         # town maps with a green box at each shop, for the tracker pack
+py randomizer.py export-bonus <iso> <bonus_table.py>          # the AP world's bonus thresholds and pools
 py objimport.py export|import|newmesh|roundtrip <model.chm>  # edit/replace models (Blender)
 py chmio.py <file>          # byte-exact model-container round-trip check
 py dlst.py  <model.chm>     # inspect/verify display lists (faces)

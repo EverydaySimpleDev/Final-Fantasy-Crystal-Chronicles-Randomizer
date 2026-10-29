@@ -11,7 +11,7 @@ No table resize is needed - the game has many unused/placeholder item slots
      id-ordered list of 5 null-terminated strings per item
      [singular, "", plural, Title, article] starting at file offset 0x6f. The
      Title is what menus/shops show. Edits stay in place (same byte span) so the
-     file size never changes; that caps the new name's length to the slot's span.
+     file size never changes. That caps the new name's length to the slot's span.
   3. (tooling) register the id in ffcc_items.NAMES and drop it from
      randomizer.EXCLUDE so the randomizer/editor/spoiler carry it - printed as a
      reminder (not auto-applied, to avoid touching source).
@@ -159,7 +159,7 @@ def _mk_desc(lines):
 def set_item_description(iso, item_id, text, donor_id=None):
     """Set an item's in-game description, keeping c_system.cfd the same size by
     borrowing bytes from an unused placeholder ("Help Message") entry after it.
-    `donor_id` forces a specific donor slot; None auto-picks the nearest one with
+    `donor_id` forces a specific donor slot, None auto-picks the nearest one with
     enough room. Idempotent. `text` may be a string or a list of up to 3 lines."""
     disc = _disc(iso, "c_system.cfd")
     _, _, raw = _read(iso, disc)
@@ -199,7 +199,7 @@ def set_item_description(iso, item_id, text, donor_id=None):
 # definition (param.cfd)
 # --------------------------------------------------------------------------- #
 def set_item_def(iso, slot_id, donor_id, gil=None, model=None):
-    """Copy the donor's param.cfd record into the slot. `gil` overrides the price;
+    """Copy the donor's param.cfd record into the slot. `gil` overrides the price,
     `model` (an int) overrides the 3D model id (the donor's is used otherwise)."""
     disc = _disc(iso, "param.cfd")
     _, _, data = _read(iso, disc)
@@ -215,6 +215,16 @@ def set_item_def(iso, slot_id, donor_id, gil=None, model=None):
     data[base + slot_id * E: base + slot_id * E + E] = rec
     _write(iso, disc, bytes(data))
     return struct.unpack(">H", rec[2:4])[0]
+
+
+def set_item_model(iso, item_id, model):
+    """Point one item's param.cfd record at another 3D model."""
+    disc = _disc(iso, "param.cfd")
+    _, _, data = _read(iso, disc)
+    data = bytearray(data)
+    at = itemstats.find_base(data) + item_id * itemstats.ENTRY + 2    # model field @0x02:2
+    data[at:at + 2] = int(model).to_bytes(2, "big")
+    _write(iso, disc, bytes(data))
 
 
 # --------------------------------------------------------------------------- #
@@ -262,7 +272,7 @@ def _replace_bytes_in_iso(iso, old, new):
 def retexture_model(iso, model_id, png_path, prefix="f"):
     """Recolor a model's texture from `png_path`, replacing it everywhere it is
     used (loose char file + every .mrg), in place. The PNG is resized to each of
-    the model's texture dimensions; the re-encoded .tex must match the original
+    the model's texture dimensions, and the re-encoded .tex must match the original
     byte size (tex.py round-trips exactly). Returns (locations_patched, size)."""
     import glob
     import tex
@@ -386,7 +396,7 @@ ASSETS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
 
 def _icon_table_base(data):
     """Absolute file offset of the per-item icon-cell table (data[base+id]=cell).
-    The .dol lives before the FST; its start is in the disc header at 0x420."""
+    The .dol lives before the FST. Its start is in the disc header at 0x420."""
     dol_off = struct.unpack(">I", data[0x420:0x424])[0]
     return dol_off + ICON_TABLE_DOL_OFF
 
@@ -458,15 +468,20 @@ def install_ap_item(iso, with_icon=True):
         ok1 = _inject_asset_tex(iso, "shop.tex", "apitem_shop.tex")
         ok2 = _inject_asset_tex(iso, "solo2.tex", "apitem_solo2.tex")
         out["steps"].append(f"icon art (shop.tex={ok1}, solo2.tex={ok2})")
+    import apmodel
+    apmodel.install(iso, AP_SLOT)
+    out["steps"].append(f"3D model (Archipelago logo, model {apmodel.MODEL})")
     return out
 
 
 def ensure_ap_item(iso, with_icon=True):
     """Install the AP Item only if it isn't already present. Returns True if it
     acted, False if it was already installed. Use this from the randomizer/GUI so
-    users with a fresh ISO get the AP Item automatically."""
+    users with a fresh ISO get the AP Item automatically. An ISO that already has
+    the AP Item but not its logo model gets the model."""
     if is_ap_installed(iso):
-        return False
+        import apmodel
+        return apmodel.install(iso, AP_SLOT)
     install_ap_item(iso, with_icon)
     return True
 
