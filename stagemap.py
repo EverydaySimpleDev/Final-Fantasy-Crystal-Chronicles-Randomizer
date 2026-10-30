@@ -88,7 +88,7 @@ STAGES = {"river": 23, "gob": 24, "mine": 3, "kinoko": 16, "ruin": 25, "gigas": 
           "lava": 15, "fort": 28, "cave": 27, "water": 29, "desert": 14, "swamp": 2,
           "city": 30, "meteo": 31}
 AREA_MAPS = {("water", 0): [0, 2]}       # Veo Lu Sluice's field loads two maps
-ROTATE = {("gigas", 2): 1}               # quarter turns clockwise, so the throne faces down
+ROTATE = {}                              # {(script, area): quarter turns clockwise}, for areas drawn turned
 SKIP_PAIRS = {("gigas", 1): {1}}         # the copy of the room seen in its mirror
 
 TILE = 1100           # longest side of one area's image, in pixels
