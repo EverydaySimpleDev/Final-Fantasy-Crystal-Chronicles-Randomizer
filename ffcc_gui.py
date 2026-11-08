@@ -1359,7 +1359,7 @@ class APPatchTab(ttk.Frame):
         ttk.Button(of, text="Save as…", command=self._browse_out).pack(side="left")
 
         ff = ttk.Frame(self); ff.pack(fill="x", pady=2)
-        ttk.Label(ff, text="Seed file (.ffcc or its .zip):", width=36).pack(side="left")
+        ttk.Label(ff, text="Seed file (.apffcc / .ffcc or its .zip):", width=36).pack(side="left")
         ttk.Entry(ff, textvariable=self.ffcc).pack(side="left", fill="x", expand=True, padx=4)
         ttk.Button(ff, text="Browse…", command=self._browse_ffcc).pack(side="left")
 
@@ -1441,8 +1441,8 @@ class APPatchTab(ttk.Frame):
 
     def _browse_ffcc(self):
         p = filedialog.askopenfilename(
-            title="Select Archipelago .ffcc placement file",
-            filetypes=[("FFCC placement file", "*.ffcc"), ("ZIP container", "*.zip"), ("All", "*.*")])
+            title="Select your Archipelago seed file (.apffcc)",
+            filetypes=[("FFCC seed file", "*.apffcc *.ffcc"), ("ZIP container", "*.zip"), ("All", "*.*")])
         if p:
             self.ffcc.set(p)
             self._suggest_out_from_ffcc(p)

@@ -65,7 +65,7 @@ integer 1–5 that becomes the pool's element:
 
 (Internally this gets copied into the new object's own state, translated into
 the real in-game bitmask — `1,2,4,8,16` respectively — and written to the
-player's chalice on touch. You don't need any of that to make the edit; the
+player's chalice on touch. You don't need any of that to make the edit. The
 literal 1–5 argument is all that matters.)
 
 **1. Find the call sites and their arguments:**
@@ -96,7 +96,7 @@ for off, op, arg in ops:
 
 This prints every `SPAWN_HOT_SPOT` call with its arguments and each argument's
 **code-relative offset** (the number next to each value). The first value in
-each call is the element (1–5); note its offset.
+each call is the element (1–5). Note its offset.
 
 **2. Turn that code-relative offset into a real file offset and patch it:**
 
@@ -178,7 +178,7 @@ The world map follows the same table:
 ## Method 2 — replacing a monster
 
 **What the argument means:** `SPAWN` (the generic monster spawner) pushes a
-13-value record per monster; the first value is the **monster ID** (the
+13-value record per monster. The first value is the **monster ID** (the
 full ID-to-name table is `MONSTER_NAMES` in `spawn_map.py`). The record layout:
 
 ```
@@ -186,8 +186,8 @@ MonsterID, field2, cycles, field4, X, Y, Z, rotation, 0, 0x40000004, drop, 0, 0
 ```
 
 - **`field2`** is 0 for a small minority of records and 1 for most. Its
-  meaning isn't known, so **prefer editing records where `field2 == 1`**;
-  that group is proven to spawn in normal play.
+  meaning isn't known, so **prefer editing records where `field2 == 1`**.
+  That group is proven to spawn in normal play.
 - **`cycles`** is a packed bitfield of which cycles (and player counts) the
   spawn appears in, so a record can be absent in some playthroughs.
 - **`field4`** (seen as 0, 2, 7 or 8) is still unidentified.
@@ -224,7 +224,7 @@ use `cftpatch.py` to copy the new monster's data into the stage first. See
 ### Boss fights
 
 A dungeon's boss fight lives in a **separate file**. For River Belle Path,
-`river_0.cft` is the field and `river_1.cft` is the boss room; look for
+`river_0.cft` is the field and `river_1.cft` is the boss room. Look for
 `Map_Floor_ID_Boss` / `PC_BOSS_DIE` among the function names to confirm
 you have the boss file. It has its own `SPAWN_MONSTER` with a few `SPAWN`
 records: one is the boss, the others are its helpers. The boss is often not

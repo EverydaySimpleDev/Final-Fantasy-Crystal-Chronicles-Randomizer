@@ -55,6 +55,7 @@ so the pack can switch between them.
     py stagemap.py render ISO SCRIPT AREA out.png    # one area, chests marked
     py stagemap.py tracker ISO OUT_DIR               # every dungeon + stagemaps.json
     py stagemap.py monster-pins ISO stagemaps.json   # add "monster_pins" ("<area file>#<entry>": [x, y])
+                                                     # and "exit_pins" (OPTIONAL_EXITS)
     py stagemap.py towns ISO OUT_DIR                 # every town with its shops + towns.json
 
 stagemaps.json: {dungeon: {"img": plain image, "variants": {suffix: image},
@@ -659,6 +660,17 @@ def area_exits(path, quads=(), rooms=None):
         m = re.search(r"cam_mode\(102, ([^,]+), [^,]+, ([^,]+),", "\n".join(body))
         if m and _number(m.group(1)) is not None and _number(m.group(2)) is not None:
             spots[case] = (_number(m.group(1)), _number(m.group(2)))
+    # A jump without a camera point (Lynari Desert's quicksand) still has its
+    # trigger in initMapJump: addQuad corners around one
+    # addLineVertex(line, x, y, z) point. That point is used before falling
+    # back on the collision's exit faces, since some of those (desert_0's
+    # north end) lead nowhere.
+    lines = {}
+    if "initMapJump" in funcs:
+        for case, body in _m0_cases(cflat.decompile(script, funcs["initMapJump"])).items():
+            m = re.search(r"addLineVertex\(\d+, ([^,]+), [^,]+, ([^)]+)\)", "\n".join(body))
+            if m and _number(m.group(1)) is not None and _number(m.group(2)) is not None:
+                lines[case] = (_number(m.group(1)), _number(m.group(2)))
     loads, branches = {}, {}
     own = os.path.basename(script.name).split(".")[0]
     for case, body in _m0_cases(cflat.decompile(script, funcs["mainMapJump"])).items():
@@ -674,6 +686,7 @@ def area_exits(path, quads=(), rooms=None):
     free = list(quads)
     if rooms and not spots and any(len(b) > 1 for b in branches.values()):
         return _wall_exits(branches, free, rooms)
+    spots = {**lines, **spots}
     for case in sorted(spots):
         if case in loads and free:
             x, z = spots[case]
@@ -821,6 +834,30 @@ def _hotspots(path):
     """[(x, z, element)] from SPAWN_HOT_SPOT records [element, x, y, z, ...]."""
     return [(w[1], w[3], r[0]) for _, r, w in spawn_map._records(path, "SPAWN_HOT_SPOT")
             if isinstance(w[1], float) and isinstance(w[3], float)]
+
+
+def _set_pos(path, cls):
+    """[(x, z)] of every constant setPos in the script's init<cls> function
+    (empty without the decompiler)."""
+    cflat = _decompiler()
+    if cflat is None:
+        return []
+    script = cflat.Script(path)
+    init = next((f for f in script.funcs if f.name == "init" + cls and f.code), None)
+    out = []
+    for line in cflat.decompile(script, init) if init else []:
+        m = re.search(r"(?<![\w.])setPos\(([^,]+), [^,]+, ([^)]+)\)", line)
+        if m and _number(m.group(1)) is not None and _number(m.group(2)) is not None:
+            out.append((_number(m.group(1)), _number(m.group(2))))
+    return out
+
+
+def _moogle_nest(path):
+    """(x, z) of the area's or town's Moogle Nest, or None. The nest is the
+    MogSu class (talking to it offers to enter, loading mog_0), placed by
+    the first setPos of initMogSu (a town's second one is a one-off moogle)."""
+    spots = _set_pos(path, "MogSu")
+    return spots[0] if spots else None
 
 
 def _monster_cycles(c):
@@ -976,11 +1013,24 @@ def _legend_height(monsters, hotspots, letters, width):
     return rows * 24 + 12 if rows else 0
 
 
+# Exits that only exist with an option, so they aren't drawn into the map
+# images: the tracker shows them as pins instead. script: [(area, name, x, z)]
+OPTIONAL_EXITS = {
+    "desert": [(0, "North Exit", -237.0, -2764.0)],   # Lynari Desert North Exit (lynarinorth.py)
+}
+MOOGLE_PIN = "Moogle Nest"
+
+
 def monster_pins(iso, script, tile=TILE, gap=24, label_height=44):
     """{"<area file>#<entry>": (x, y)} - where each monster of the map's areas
     is on the dungeon's map image (as render_dungeon lays it out), worked out
-    from the spawn positions alone. Boss rooms aren't on the map."""
+    from the spawn positions alone. Boss rooms aren't on the map. The
+    OPTIONAL_EXITS of the dungeon are included under their names, and its
+    Moogle Nest as MOOGLE_PIN."""
     discs, _, paths, areas = _dungeon_areas(iso, script)
+    for area, path in paths.items():
+        if area not in areas and _moogle_nest(path):
+            print(f"  {script}: the Moogle Nest is in area {area + 1}, which isn't on the map")
     frames, sizes = {}, {}
     for disc in discs:
         area = randomizer._area_no(disc)
@@ -998,6 +1048,14 @@ def monster_pins(iso, script, tile=TILE, gap=24, label_height=44):
         for m in spawn_map.monsters(paths[area]):
             px, py = to_px(m["world"]["x"], m["world"]["z"])
             pins[f"{name}#{m['entry']}"] = (int(x + px), int(y + label_height + py))
+        for exit_area, exit_name, ex, ez in OPTIONAL_EXITS.get(script, []):
+            if exit_area == area:
+                px, py = to_px(ex, ez)
+                pins[exit_name] = (int(x + px), int(y + label_height + py))
+        nest = _moogle_nest(paths[area])
+        if nest:
+            px, py = to_px(*nest)
+            pins[MOOGLE_PIN] = (int(x + px), int(y + label_height + py))
     return pins
 
 
@@ -1010,9 +1068,16 @@ def add_monster_pins(iso, index_path):
         if name not in index:
             continue
         pins = monster_pins(iso, script)
-        index[name]["monster_pins"] = {k: [round(x * TRACKER_SCALE), round(y * TRACKER_SCALE)]
-                                       for k, (x, y) in sorted(pins.items())}
-        print(f"  {name}: {len(pins)} monster pin(s)")
+        exits = {n for _, n, _, _ in OPTIONAL_EXITS.get(script, [])}
+        scaled = {k: [round(x * TRACKER_SCALE), round(y * TRACKER_SCALE)] for k, (x, y) in sorted(pins.items())}
+        index[name]["monster_pins"] = {k: v for k, v in scaled.items() if k not in exits and k != MOOGLE_PIN}
+        if exits:
+            index[name]["exit_pins"] = {k: v for k, v in scaled.items() if k in exits}
+        if MOOGLE_PIN in scaled:
+            index[name]["moogle_pin"] = scaled[MOOGLE_PIN]
+        else:
+            index[name].pop("moogle_pin", None)
+        print(f"  {name}: {len(pins)} pin(s)" + ("" if MOOGLE_PIN in scaled else ", no Moogle Nest"))
     with open(index_path, "w", encoding="utf-8") as f:
         json.dump(index, f, indent=1)
 
@@ -1129,9 +1194,18 @@ def write_tracker_maps(iso, out_dir):
         json.dump(index, f, indent=1)
 
 
-# Towns with shops that are checks (shopchecks.py): town -> (stage, map)
-TOWNS = {"Marr's Pass": (4, 0), "Alfitaria": (5, 0),
-         "Fields of Fum": (6, 0), "Shella": (7, 0), "Leuda": (8, 0)}
+# Towns with shops that are checks (shopchecks.py) or a Moogle Nest:
+# town -> (stage, map, town script, world rectangle (x0, z0, x1, z1) to show
+# or None for most of the town's geometry). The two banks of the Jegon River
+# are one map (port_0), and only the west bank has a nest.
+TOWNS = {"Marr's Pass": (4, 0, "weapon_0", None), "Alfitaria": (5, 0, "castle_0", None),
+         "Fields of Fum": (6, 0, "farm_0", None), "Shella": (7, 0, "magic_0", None),
+         "Leuda": (8, 0, "thief_0", None), "Tipa": (1, 1, "village_0", None),
+         "Port Tipa": (10, 0, "port_1", None),
+         "West Jegon River": (11, 0, "port_0", (-560, -820, -100, -230)),
+         "Mag Mell": (9, 0, "magmell_0", (-420, -560, 420, 470))}
+MOOGLE_BOX = 18       # half the size of a Moogle Nest's circle, in pixels
+MOOGLE_PINK = (240, 120, 200)
 # shop key -> (box label, x, z): where the shopkeeper stands, from the setPos
 # in its town script's NPC class
 SHOP_SPOTS = {
@@ -1150,21 +1224,25 @@ SHOP_GREEN = (60, 230, 90)
 
 
 def render_town(iso, town, tile=TILE):
-    """(image, {shop key: (px, py)}): the town from above with a green box
-    at each shop. Towns have no chests to frame the image, so it covers
-    most of the town's geometry instead, roofs included."""
+    """(image, {shop key or "moogle": (px, py)}): the town from above with a
+    green box at each shop and a pink circle at the Moogle Nest. Towns have
+    no chests to frame the image, so it covers the town's rectangle in
+    TOWNS, or else most of the town's geometry, roofs included."""
     import shopchecks
-    stage_no, mp = TOWNS[town]
+    stage_no, mp, script, bounds = TOWNS[town]
     stage = Stage(iso, stage_no)
-    pairs = stage.pairs(mp)
-    pts = []
-    for pair, world in stage.instances(mp):
-        p = pairs[pair] if pair < len(pairs) else None
-        if p is None or p["verts"] is None or p["cols"] is None:
-            continue
-        pts.append((np.c_[p["verts"], np.ones(len(p["verts"]))] @ world.T)[:, :3])
-    pts = np.vstack(pts)
-    (x0, _, z0), (x1, _, z1) = np.percentile(pts, TOWN_SPAN[0], axis=0), np.percentile(pts, TOWN_SPAN[1], axis=0)
+    if bounds:
+        x0, z0, x1, z1 = bounds
+    else:
+        pairs = stage.pairs(mp)
+        pts = []
+        for pair, world in stage.instances(mp):
+            p = pairs[pair] if pair < len(pairs) else None
+            if p is None or p["verts"] is None or p["cols"] is None:
+                continue
+            pts.append((np.c_[p["verts"], np.ones(len(p["verts"]))] @ world.T)[:, :3])
+        pts = np.vstack(pts)
+        (x0, _, z0), (x1, _, z1) = np.percentile(pts, TOWN_SPAN[0], axis=0), np.percentile(pts, TOWN_SPAN[1], axis=0)
     scale = tile / max(x1 - x0, z1 - z0)
 
     def to_px(x, z):
@@ -1184,17 +1262,29 @@ def render_town(iso, town, tile=TILE):
         draw.rectangle([px - SHOP_BOX, py - SHOP_BOX, px + SHOP_BOX, py + SHOP_BOX], outline=SHOP_GREEN, width=5)
         draw.text((px, py + SHOP_BOX + 4), label, fill=(255, 255, 255), font=font, anchor="ma",
                   stroke_width=3, stroke_fill=(0, 0, 0))
+    path = os.path.join(tempfile.gettempdir(), f"stagemap_{script}.cft")
+    randomizer._extract(iso, f"dvd/cft/{script}.cft", path)
+    nest = _moogle_nest(path)
+    if nest:
+        px, py = to_px(*nest)
+        spots["moogle"] = (px, py)
+        draw.ellipse([px - MOOGLE_BOX, py - MOOGLE_BOX, px + MOOGLE_BOX, py + MOOGLE_BOX],
+                     outline=MOOGLE_PINK, width=5)
+        draw.text((px, py + MOOGLE_BOX + 4), "Moogle Nest", fill=(255, 255, 255), font=font, anchor="ma",
+                  stroke_width=3, stroke_fill=(0, 0, 0))
+    else:
+        print(f"  {town}: no Moogle Nest found in {script}")
     return img, spots
 
 
 def write_town_maps(iso, out_dir):
     """Every town's map image (town_<stage>.jpg) plus towns.json:
-    {town: {"img": file, "size": [w, h], "pins": {shop key: [x, y]}}}."""
+    {town: {"img": file, "size": [w, h], "pins": {shop key or "moogle": [x, y]}}}."""
     os.makedirs(out_dir, exist_ok=True)
     index = {}
-    for town, (stage_no, _) in TOWNS.items():
+    for town, (stage_no, mp, _, _) in TOWNS.items():
         img, spots = render_town(iso, town)
-        file = f"town_{stage_no:03d}.jpg"
+        file = f"town_{stage_no:03d}_{mp}.jpg" if mp else f"town_{stage_no:03d}.jpg"
         small = img.resize((round(img.width * TRACKER_SCALE), round(img.height * TRACKER_SCALE)), Image.LANCZOS)
         small.save(os.path.join(out_dir, file), quality=TRACKER_QUALITY, optimize=True)
         index[town] = {"img": file, "size": list(small.size),

@@ -18,7 +18,9 @@ The export writes monster_table.py for the AP world:
     ENEMIES  = {name: (code, dungeon, enemy type, id, area, entry, (x, y, z), cycles)}
 MONSTERS has one row per enemy type, ENEMIES one per enemy (its spawn spot).
 `cycles` are the cycles the enemy appears in for one player. Enemies that
-only appear with more players are left out. The main dungeon is the one with
+only appear with more players, only in the title demo or never show up
+(spawn_map.py's demo / hidden), and cycles in which a cave-in walls them off
+(UNREACHABLE), are left out. The main dungeon is the one with
 the most such spawns. Codes already in an existing table are kept, so a
 location keeps its AP id when the table is made again.
 
@@ -88,6 +90,7 @@ ENEMIES = {
     0xB8: "Skeleton Fire Mage", 0xB9: "Skeleton Ice Mage", 0xBA: "Skeleton Lightning Mage",
     0xBD: "Gold Lizard Skirmisher",
     # the boss fights' own copies of normal enemies
+    0x5E: "Mu",     # pops out of the ground in the Giant Crab fight
     0x60: "Hell Plant", 0x61: "Magic Plant", 0x62: "Stone Plant",
     0x64: "Orc (Axe)", 0x65: "Orc (Mace)", 0x66: "Orc (Spear)",
     0x68: "Goblin (Sword)", 0x69: "Goblin (Mace)", 0x6A: "Goblin (Spear)",
@@ -105,10 +108,38 @@ BOSS_NAMES = set(BOSSES.values())
 
 SOLO = 0x01
 
+# (area, entry) -> cycles the enemy spawns in but can't be reached. Goblin
+# Wall's gob_1 puts up a different set of cave-ins in cycle 1
+# (beginmyMapGimmik), sealing off the pocket at x ~ 915 (group D=5).
+UNREACHABLE = {
+    ("gob_1", 37): {1},     # Electric Jellyfish
+    ("gob_1", 38): {1},     # Goblin (Sword)
+}
+
+
+# (area, entry) of enemies that wait hidden until the map script springs them
+# on the player: it moves them to the player and overwrites their spawn point
+# (CGObject +0x168), so they can't be told apart by spot. Lynari Desert's two
+# field Scorpions (the Antlion fight's kind, id 124) burrow out when a switch
+# sphere is hit with the right magic (onHitParticleSwitchSphere ->
+# mainmyMapGimmik). Any kill of their id that no other spot matches counts as
+# the next of them, and they're optional (nothing in the game makes you
+# spring them), so the AP world excludes them.
+AMBUSH = {("desert_0", 0), ("desert_0", 1)}
+
 
 def cycles_of(c):
     """The cycles (1-3) a SPAWN record's C field lets the monster appear in."""
     return [cycle for cycle in (1, 2, 3) if c >> (3 + cycle) & 1]
+
+
+def solo_cycles(area, record):
+    """The cycles a player alone meets this monster in: none for monsters
+    that only spawn in the title demo or that the area keeps hidden."""
+    c = record["C"] & 0xFF
+    if not c & SOLO or record.get("demo") or record.get("hidden"):
+        return set()
+    return set(cycles_of(c)) - UNREACHABLE.get((area, record["entry"]), set())
 
 
 def _cft_dir(source):
@@ -133,18 +164,18 @@ def collect(data):
     spawn_map.build_all's."""
     species = {}
     for dungeon, areas in data.items():
-        for area in areas.values():
-            for record in area["monsters"]:
+        for area, info in areas.items():
+            for record in info["monsters"]:
                 name = SPECIES.get(record["monster_id"])
                 if name is None:
                     continue
                 entry = species.setdefault(name, {"boss": name in BOSS_NAMES, "ids": set(),
                                                   "spawns": collections.Counter(), "cycles": {}})
                 entry["ids"].add(record["monster_id"])
-                c = record["C"] & 0xFF
-                if c & SOLO:
+                cycles = solo_cycles(area, record)
+                if cycles:
                     entry["spawns"][dungeon] += 1
-                    entry["cycles"].setdefault(dungeon, set()).update(cycles_of(c))
+                    entry["cycles"].setdefault(dungeon, set()).update(cycles)
     # every id of a species counts when it dies, even ones not spawned by a SPAWN record
     for monster_id, name in SPECIES.items():
         if name in species:
@@ -157,55 +188,111 @@ def collect_spawns(data):
     "id", "area", "entry", "pos", "cycles", "boss"}] in the game's order.
     A script can list the same enemy at the same spot twice (two code paths,
     only one of which runs), so records of one id at one spot are one enemy
-    (cycles combined). A boss fight is one enemy, whichever piece dies."""
+    (cycles combined). A boss fight is one enemy, whichever piece dies.
+    Enemies the player never meets (solo_cycles) stay in the list with no
+    cycles, so they keep their number in the names of the others.
+    Enemies of a switch block (spawn_map.switch_groups: one case spawns per
+    visit) get "group": (dungeon, area, n), "size" (how many spawn per
+    visit) and "often" (in how many cases their spot is)."""
     out, seen = [], {}
     for dungeon, areas in data.items():
         for area in sorted(areas, key=lambda a: int(a.rsplit("_", 1)[1])):
+            in_case = {}     # entry -> (switch n, case n)
+            for n, cases in enumerate(areas[area].get("switches", [])):
+                for k, entries in enumerate(cases):
+                    in_case.update({entry: (n, k) for entry in entries})
+            cases_of = collections.defaultdict(set)     # spawn key -> {(switch n, case n)}
             for record in areas[area]["monsters"]:
                 enemy = SPECIES.get(record["monster_id"])
-                c = record["C"] & 0xFF
-                if enemy is None or not c & SOLO:
+                if enemy is None or not record["C"] & SOLO:
                     continue
+                cycles = solo_cycles(area, record)
                 w = record["world"]
                 pos = (round(w["x"], 2), round(w["y"], 2), round(w["z"], 2))
                 boss = enemy in BOSS_NAMES
                 key = (dungeon, enemy) if boss else (dungeon, record["monster_id"], pos)
+                if record["entry"] in in_case and cycles:
+                    cases_of[key].add(in_case[record["entry"]])
                 if key in seen:
-                    seen[key]["cycles"].update(cycles_of(c))
+                    if cycles and not seen[key]["cycles"]:
+                        seen[key].update(area=area, entry=record["entry"])
+                    seen[key]["cycles"].update(cycles)
                     continue
                 seen[key] = {"dungeon": dungeon, "enemy": enemy, "id": record["monster_id"], "area": area,
-                             "entry": record["entry"], "pos": pos, "cycles": set(cycles_of(c)), "boss": boss}
+                             "entry": record["entry"], "pos": pos, "cycles": cycles, "boss": boss,
+                             "ambush": (area, record["entry"]) in AMBUSH}
                 out.append(seen[key])
+            for n, cases in enumerate(areas[area].get("switches", [])):
+                members = [key for key, where in cases_of.items() if any(s == n for s, _ in where)]
+                size = max(sum(1 for key in members if (n, k) in cases_of[key]) for k in range(len(cases)))
+                if len(members) <= size:
+                    continue    # every spot spawns on every visit
+                for key in members:
+                    seen[key].update(group=(dungeon, area, n), size=size,
+                                     often=sum(1 for s, _ in cases_of[key] if s == n))
     return out
 
 
 def _previous_codes(path, table):
+    """{name: code} of `table` in an existing monster_table.py. For ENEMIES
+    this includes the group members that have no row any more
+    (ENEMY_GROUPS), so they keep their codes too."""
     if not os.path.exists(path):
         return {}
     tree = ast.parse(open(path, encoding="utf-8").read())
+    codes = {}
     for node in tree.body:
-        if isinstance(node, ast.Assign) and node.targets[0].id == table:
-            return {name: row[0] for name, row in ast.literal_eval(node.value).items()}
-    return {}
+        if not isinstance(node, ast.Assign):
+            continue
+        value = ast.literal_eval(node.value)
+        if node.targets[0].id == table:
+            codes.update({name: row[0] for name, row in value.items()})
+        elif table == "ENEMIES" and node.targets[0].id == "ENEMY_GROUPS":
+            codes.update({name: code for _, members, _ in value for name, code in members})
+    return codes
 
 
 def _enemy_lines(spawns, codes, first_code):
     """ENEMIES rows: each named "<dungeon> - <enemy> <n>" (n counting that
-    enemy in that dungeon) or "<dungeon> - <boss>"."""
+    enemy in that dungeon) or "<dungeon> - <boss>". A switch group gets as
+    many rows as it spawns enemies per visit, for its most frequent spots.
+    ENEMY_GROUPS lines list each group's names (rows first) and spots."""
     next_code = max(list(codes.values()) + [first_code - 1]) + 1
     counts = collections.Counter()
-    lines = []
+    named, groups, ambushes = [], {}, {}
     for s in spawns:
         counts[(s["dungeon"], s["enemy"])] += 1
         name = f"{s['dungeon']} - {s['enemy']}"
         if not s["boss"]:
             name += f" {counts[(s['dungeon'], s['enemy'])]}"
+        if s["cycles"]:
+            named.append((name, s))
+            if "group" in s:
+                groups.setdefault(s["group"], []).append((name, s))
+            elif s["ambush"]:
+                ambushes.setdefault((s["dungeon"], s["area"]), []).append((name, s))
+    dropped = set()
+    for members in groups.values():
+        ranked = sorted(members, key=lambda m: -m[1]["often"])     # stable: game order breaks ties
+        dropped |= {name for name, _ in ranked[members[0][1]["size"]:]}
+        members[:] = ranked
+    lines = []
+    for name, s in named:
         if name not in codes:
             codes[name] = next_code
             next_code += 1
-        lines.append(f"    {name!r}: ({codes[name]}, {s['dungeon']!r}, {s['enemy']!r}, {s['id']}, "
-                     f"{s['area']!r}, {s['entry']}, {s['pos']!r}, {tuple(sorted(s['cycles']))!r}),")
-    return lines
+        if name not in dropped:
+            lines.append(f"    {name!r}: ({codes[name]}, {s['dungeon']!r}, {s['enemy']!r}, {s['id']}, "
+                         f"{s['area']!r}, {s['entry']}, {s['pos']!r}, {tuple(sorted(s['cycles']))!r}),")
+    group_lines = [f"    ({members[0][1]['dungeon']!r}, {tuple((n, codes[n]) for n, _ in members)!r}, "
+                   f"{tuple((s['id'], s['pos']) for _, s in members)!r}),"
+                   for members in groups.values()]
+    # an ambush group's spot is "anywhere" (None)
+    group_lines += [f"    ({dungeon!r}, {tuple((n, codes[n]) for n, _ in members)!r}, "
+                    f"{tuple(sorted({(s['id'], None) for _, s in members}))!r}),"
+                    for (dungeon, _), members in ambushes.items()]
+    optional = [name for members in ambushes.values() for name, _ in members]
+    return lines, group_lines, optional
 
 
 def export(source, out_path):
@@ -234,9 +321,6 @@ def export(source, out_path):
         lines.append(f"    {name!r}: ({codes[name]}, {info['boss']}, {ids!r}, {main!r}, {cycles!r}),")
 
     header = '''"""
-Written by monsterhunt.py (Final-Fantasy-Crystal-Chronicles-Randomizer) from
-the dungeon scripts - make it again instead of editing it.
-
 Every enemy type of the Monster Hunt:
     name: (code, boss, monster ids, main dungeon, {dungeon: cycles})
 
@@ -253,15 +337,31 @@ Enemy" mode), named "<dungeon> - <enemy> <n>", or "<dungeon> - <boss>":
 
 monster id    its id in the dungeon script (a boss: any of its type's ids counts)
 area, entry   the area file and its place among that file's SPAWN records
-(x, y, z)     where it spawns: a live monster keeps this as its home position
+(x, y, z)     where it spawns: a live monster keeps this at CGObject +0x168
 cycles        the cycles it appears in, for one player
+
+ENEMY_GROUPS: spots of which only some spawn per visit (the area picks one
+case of a switch, e.g. 2 of Daemon's Court's 4 Gold Lizard spots). The
+group has an ENEMIES row per enemy that spawns; a kill on any of its spots
+counts as its first name still unchecked. The names after the rows have no
+row (older seeds may still have them):
+    (dungeon, ((name, code), ...), ((monster id, (x, y, z)), ...))
+A spot of None is an ambush group (monsterhunt.AMBUSH): enemies the map
+script moves onto the player, so any kill of that id in the dungeon that no
+other spot matches counts.
+
+OPTIONAL_ENEMIES: enemies the game never makes you meet (the ambushes); the
+AP world excludes them.
 """
 
 MONSTERS = {
 '''
-    enemy_lines = _enemy_lines(collect_spawns(data), _previous_codes(out_path, "ENEMIES"), FIRST_ENEMY_CODE)
+    enemy_lines, group_lines, optional = _enemy_lines(collect_spawns(data), _previous_codes(out_path, "ENEMIES"),
+                                                      FIRST_ENEMY_CODE)
     with open(out_path, "w", encoding="utf-8") as f:
-        f.write(header + "\n".join(lines) + "\n}\n\nENEMIES = {\n" + "\n".join(enemy_lines) + "\n}\n")
+        f.write(header + "\n".join(lines) + "\n}\n\nENEMIES = {\n" + "\n".join(enemy_lines) + "\n}\n"
+                "\nENEMY_GROUPS = [\n" + "\n".join(group_lines) + "\n]\n"
+                f"\nOPTIONAL_ENEMIES = {tuple(optional)!r}\n")
     return len(lines), len(enemy_lines)
 
 

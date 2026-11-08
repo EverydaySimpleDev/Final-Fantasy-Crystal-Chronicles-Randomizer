@@ -2,13 +2,13 @@
 
 Reference transcription from the **Nintendo Power GameCube guide** (matches the
 GameCube ISO, unlike Remaster sources). Each dungeon boss offers **8 artifact
-sets**; which set you get is gated by **cycle** + your **bonus points**, with
+sets**. Which set you get is gated by **cycle** + your **bonus points**, with
 thresholds that scale by **player count (1P–4P)**.
 
 This is the **end-of-dungeon reward** subsystem — **separate from chest /
 enemy-drop loot** (`get_treasure`), and chest randomization never changes it.
 The sets themselves live in `dvd/cft/newbattle.cfd` (one `CBossArtifactStage`
-block per dungeon, 8 entries × 4 item ids); `randomizer.py` can optionally
+block per dungeon, 8 entries × 4 item ids). `randomizer.py` can optionally
 randomize them (`_randomize_bonus_pools`) or force specific items
 (`_bonus_pools`) — see `NEWBATTLE_BLOCKS` in `randomizer.py`. The tables
 below are the vanilla contents.
@@ -247,8 +247,8 @@ Tiers (1P/2P/3P/4P): **A** = 144/156/177/194 · **B** = 180/195/221/243 · **C**
 ## Mount Vellenge — final dungeon (NO cycles)
 
 The game's last dungeon has **no 8-set / cycle table** — it has a single set of
-artifacts found in its chests (you can't remove them; they only help in the
-final fight). Artifacts available:
+artifacts found in its chests (you can't remove them, and they only help in
+the final fight). Artifacts available:
 
 Aegis, Dark Matter, Elven Mantle, Flametongue, Ice Brand, Kris, Mage's Staff,
 Masamune, Mjollnir, Ribbon, Sage's Staff, Sasuke's Blade, Wonder Bangle.
@@ -282,6 +282,6 @@ Lynari Desert — plus **Mount Vellenge** (final dungeon, no cycles).
 Areas with **no boss reward table**: Mag Mell (peaceful town), Jegon River and
 Cave of the Lethargon (connecting passages) have no 8-set table.
 
-Note: the artifact lists are reliable; the small per-player **point
+Note: the artifact lists are reliable. The small per-player **point
 thresholds** are the OCR-risky part (entries marked *OCR-approx* especially —
 re-check against the guide pages if you need exact qualifying scores).

@@ -195,6 +195,44 @@ def set_item_description(iso, item_id, text, donor_id=None):
     return True
 
 
+def set_item_descriptions(iso, texts, skip_donors=()):
+    """Set several items' descriptions at once ({item id: [line1, line2,
+    line3]}), borrowing the bytes from as many unused "Help Message" entries
+    after them as needed - for texts too long for set_item_description's one
+    donor. `skip_donors`: placeholder ids to leave alone (kept for something
+    else). Entries in between keep their text, and the marker count stays
+    the same, so every lookup still works. Returns the donor ids used."""
+    disc = _disc(iso, "c_system.cfd")
+    _, _, raw = _read(iso, disc)
+    cs = bytearray(raw)
+    starts = _desc_starts(cs) + [None]
+    new = {DESC_ITEM0 + i: _mk_desc(lines if isinstance(lines, list) else [lines])
+           for i, lines in texts.items()}
+    first, last = min(new), max(new)
+    span = lambda j: starts[j + 1] - starts[j]
+    grow = sum(len(b) - span(j) for j, b in new.items())
+    donors = []
+    for j in range(last + 1, len(starts) - 2):
+        if grow <= 0:
+            break
+        if j - DESC_ITEM0 in skip_donors or _desc_line1(cs, starts, j) != "Help Message":
+            continue
+        donors.append(j)
+        grow -= span(j) - 9                            # a donor shrinks to its 3 markers
+    if grow > 0:
+        raise SystemExit("not enough unused description entries to borrow from")
+    end = (donors[-1] if donors else last) + 1
+    out = bytearray()
+    for j in range(first, end):
+        out += new.get(j) or (_mk_desc([""]) if j in donors else cs[starts[j]:starts[j + 1]])
+    if donors:                                         # left-over bytes pad the last donor
+        out[-6:-6] = b" " * ((starts[end] - starts[first]) - len(out))
+    assert len(out) == starts[end] - starts[first]
+    cs[starts[first]:starts[end]] = out
+    _write(iso, disc, bytes(cs))
+    return [j - DESC_ITEM0 for j in donors]
+
+
 # --------------------------------------------------------------------------- #
 # definition (param.cfd)
 # --------------------------------------------------------------------------- #
@@ -484,6 +522,57 @@ def ensure_ap_item(iso, with_icon=True):
         return apmodel.install(iso, AP_SLOT)
     install_ap_item(iso, with_icon)
     return True
+
+
+# --------------------------------------------------------------------------- #
+# Extra spell rings (AP option Extra Spell Rings)
+# --------------------------------------------------------------------------- #
+# The game has rings only for Fire, Blizzard, Thunder, Cure and Life. A ring is
+# a Ring of Fire record (family 0xDF) whose u16 at offset 10 is the spell row it
+# casts, so pointing that at another spell row makes a working ring for that
+# spell. They use the free artifact slots after the stage keys (0xE9-0xF5).
+RING_DONOR = 0xDF                # Ring of Fire
+RING_SPELL_OFF = 10
+# (slot, spell, spell row, ring whose menu icon it borrows)
+SPELL_RINGS = [
+    (0xF6, "Gravity", 0x226, 0xE1),
+    (0xF7, "Holy",    0x221, 0xE3),
+    (0xF8, "Slow",    0x214, 0xE0),
+    (0xF9, "Stop",    0x23E, 0xE0),
+    (0xFA, "Haste",   0x22A, 0xE2),
+]
+# description entries the AP Item uses
+RING_DESC_KEEP = (AP_SLOT, AP_DESC_DONOR)
+
+
+def create_spell_rings(iso):
+    """Add Ring of Gravity, Holy, Slow, Stop and Haste to the ISO: definition,
+    name, menu icon and a description like the game's own rings. Safe to
+    re-run. Run it after the stage keys, which borrow description bytes
+    from the same area."""
+    for slot, spell, row, icon in SPELL_RINGS:
+        set_item_def(iso, slot, RING_DONOR)
+        disc = _disc(iso, "param.cfd")
+        _, _, data = _read(iso, disc)
+        data = bytearray(data)
+        off = itemstats.find_base(data) + slot * itemstats.ENTRY
+        data[off + RING_SPELL_OFF:off + RING_SPELL_OFF + 2] = row.to_bytes(2, "big")
+        _write(iso, disc, bytes(data))
+        # the game's own ring style, [ring of X, "", rings, X Ring, a]. The
+        # full "Ring of Gravity" title doesn't fit the slot.
+        disc = _disc(iso, "c_system.cfd")
+        _, _, cs = _read(iso, disc)
+        start, end, _ = name_slot(cs, slot)
+        forms = [f"ring of {spell}", "", "rings", f"{spell} Ring", "a"]
+        spare = end - start - sum(len(s) + 1 for s in forms)
+        if spare < 0:
+            raise SystemExit(f"{spell} Ring doesn't fit item slot 0x{slot:x}")
+        forms[2] += " " * spare
+        _write(iso, disc, cs[:start] + b"".join(s.encode() + b"\0" for s in forms) + cs[end:])
+        set_icon_cell(iso, slot, get_icon_cell(iso, icon))
+    set_item_descriptions(iso, {slot: ["", f"Cast {spell} at any time.", ""]
+                                for slot, spell, _, _ in SPELL_RINGS},
+                          skip_donors=RING_DESC_KEEP)
 
 
 # --------------------------------------------------------------------------- #

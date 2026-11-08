@@ -19,7 +19,7 @@ from the full 1205-row `param.cfd` table and cross-referenced against which
 - **`(no mesh file!)`**: an item's record points at a mesh id with no
   corresponding file on disc (ids 5, 6, 38, 49, 78, 111, 124, 125, 129) -
   these are usually reusing a hardcoded record layout rather than an actual
-  missing asset (e.g. Ragnarok/Halberd/etc., all late-game weapons); not
+  missing asset (e.g. Ragnarok/Halberd/etc., all late-game weapons). Not
   worth targeting for a new item since nothing will render.
 - **"N unnamed recipe/scroll record(s)"**: additional `param.cfd` rows that
   point at this mesh id but aren't in this repo's curated item-name table

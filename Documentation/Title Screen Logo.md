@@ -18,13 +18,13 @@ glow) and `cc_logo03` (the copyright lines). The patcher only replaces
 The texture's `FMT` block says IA4 (4-bit grey + 4-bit alpha), and `tex.py`
 decodes it that way, but **the game draws it as an 8-bit palette image**.
 Each pixel byte is an index into the texture's own 256-colour palette, the
-`PALT` block. Read as IA4, it looks like a grey, speckled mess; read with
+`PALT` block. Read as IA4, it looks like a grey, speckled mess. Read with
 the palette, it's the real full-colour logo.
 
 | Block | Size | Contents |
 |---|---|---|
 | `PALT` | 1024 bytes | 256 colours. Bytes 0–511: (G, R) per colour. Bytes 512–1023: (A, B) per colour. |
-| `IMAG` | 129,024 bytes | One palette index per pixel, in 8 × 4 tiles: tiles left to right, then top to bottom; inside a tile, 8 pixels across × 4 rows. |
+| `IMAG` | 129,024 bytes | One palette index per pixel, in 8 × 4 tiles: tiles left to right, then top to bottom, and inside a tile 8 pixels across × 4 rows. |
 
 So any picture of up to **256 colours, each with its own transparency**, can
 replace it at exactly the same size. Nothing else in the ISO moves.
@@ -46,7 +46,7 @@ apart in Dolphin's game list:
 
 | Patched with | Long name (game list) | Short name |
 |---|---|---|
-| an AP seed (`.ffcc`) | `FFCC Archipelago: <player> (<seed>)` | `FFCC AP: <player>` |
+| an AP seed (`.apffcc`) | `FFCC Archipelago: <player> (<seed>)` | `FFCC AP: <player>` |
 | the Randomize tab | `FFCC Randomizer (seed <seed>)` | `FFCC Randomizer` |
 | anything else | `FINAL FANTASY Crystal Chronicles Archipelago` | `FFCC Archipelago` |
 
@@ -82,7 +82,7 @@ at 96 × 32 every pixel counts. A wide, short logo fills it best.
    entry, so glows and anti-aliased edges survive. Pixels that are almost
    invisible (alpha under 8 of 255) are made fully clear so they don't use
    up palette entries.
-5. **Mind the menu below.** The logo sits above "New Game / Load Game";
+5. **Mind the menu below.** The logo sits above "New Game / Load Game"
    keep important parts out of the bottom few rows.
 6. **Mind the background.** The title background is light fog at the bottom
    and dark at the top left. Strong outlines keep the text readable on both.

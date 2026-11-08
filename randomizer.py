@@ -633,11 +633,7 @@ def export_bonus_table(iso, out_path):
     candidates = build_pool("all")
     used = set(candidates)
     lines = ['"""',
-             "Written by randomizer.py (Final-Fantasy-Crystal-Chronicles-Randomizer) from the",
-             "game files - regenerate instead of editing by hand:",
-             "    py randomizer.py export-bonus <clean.iso> <this file>",
-             "",
-             "The end-of-dungeon bonus (newbattle.cfd). Each dungeon has 8 reward entries",
+             "The end-of-dungeon bonus. Each dungeon has 8 reward entries",
              "of 4 items. The game offers entry (cycle start + tier): cycle start is",
              "0 / 2 / 4 for Cycles 1 / 2 / 3, tier is 0-3 by the party's score, and the",
              "player picks one of the entry's 4 items. A tier is reached when the bonus",
@@ -870,6 +866,834 @@ BEST_BONUS_TIER_PATCHES = [
 ]
 
 
+# Enemy health over each enemy (Start.dol, NTSC-US). Every frame
+# CFlatRuntime2::Draw calls each object's onDrawDebug at its spot on the
+# screen, but it only draws with debug-menu flag 0x80 (DbgMenuPcs.m_dbgFlags,
+# 0x803056EC). Monsters get their own onDrawDebug, HP_BAR_CODE. It skips
+# monsters the game keeps hidden (sysControl 7: +0x6BE set, m_displayFlags
+# bit 0 clear) and the bosses, which have the boss gauge (their monster id,
+# work record +0x10, is 0x85-0x99 or in its list). Then, by its mode byte:
+#   bar   a 40x6 bar, red over dark grey, filled by hp/max, drawn the way the
+#         boss gauge draws its fill (CMenuPcs::DrawRect in one flat colour
+#         after GXSetChanMatColor and SetTextureTev(0)). It sets up the
+#         menus' 2D drawing state first with CMenuPcs::DrawInit, because
+#         the debug loop leaves the font's vertex format set and DrawRect
+#         can't use it. Afterwards it gives the font its state back
+#         (CFont::DrawInit).
+#   text  CGCharaObj::onDrawDebug's own text, cut to "hp/max"
+#   both  the bar, then the text above it
+# It lives in TRKTargetAccessFP (0x801ABB50, 0x50C bytes), MetroTRK debugger
+# code a retail game never runs. The party's characters draw nothing
+# (CGObject's empty onDrawDebug), the collision spheres the same flag draws
+# stay off, and CDbgMenuPcs::Init starts the flags with 0x80.
+HP_BAR_ADDR = 0x801ABB50
+HP_BAR_DOL_OFFSET = 0x19B8F0
+HP_BAR_CODE = bytes.fromhex(
+    "9421ffb0"   # stwu r1, -0x50(r1)
+    "7c0802a6"   # mflr r0
+    "90010054"   # stw r0, 0x54(r1)
+    "dbe10048"   # stfd f31, 0x48(r1)
+    "dbc10040"   # stfd f30, 0x40(r1)
+    "dba10038"   # stfd f29, 0x38(r1)
+    "93e10034"   # stw r31, 0x34(r1)
+    "93c10030"   # stw r30, 0x30(r1)
+    "93a1002c"   # stw r29, 0x2c(r1)
+    "d0410020"   # stfs f2, 0x20(r1)
+    "90610024"   # stw r3, 0x24(r1)
+    "ffc00890"   # fmr f30, f1
+    "7cbf2b78"   # mr r31, r5
+    "7c9d2378"   # mr r29, r4
+    "8803009a"   # lbz r0, 0x9a(r3)
+    "5400c002"   # rlwinm r0, r0, 0x18, 0, 1
+    "7c00fe70"   # srawi r0, r0, 0x1f
+    "7c000775"   # extsb. r0, r0
+    "418201a4"   # beq 0x801abd3c
+    "3c80802a"   # lis r4, -0x7fd6
+    "8004a1cc"   # lwz r0, -0x5e34(r4)
+    "2c000000"   # cmpwi r0, 0
+    "40820194"   # bne 0x801abd3c
+    "880306be"   # lbz r0, 0x6be(r3)
+    "2c000000"   # cmpwi r0, 0
+    "40820188"   # bne 0x801abd3c
+    "80030060"   # lwz r0, 0x60(r3)
+    "540007ff"   # clrlwi. r0, r0, 0x1f
+    "4182017c"   # beq 0x801abd3c
+    "81230058"   # lwz r9, 0x58(r3)
+    "80090010"   # lwz r0, 0x10(r9)
+    "28000085"   # cmplwi r0, 0x85
+    "4180000c"   # blt 0x801abbdc
+    "28000099"   # cmplwi r0, 0x99
+    "40810164"   # ble 0x801abd3c
+    "3d40801b"   # lis r10, -0x7fe5
+    "394abdd7"   # addi r10, r10, -0x4229
+    "8d2a0001"   # lbzu r9, 1(r10)
+    "2c090000"   # cmpwi r9, 0
+    "41820010"   # beq 0x801abbfc
+    "7c090000"   # cmpw r9, r0
+    "41820148"   # beq 0x801abd3c
+    "4bffffec"   # b 0x801abbe4
+    "81230058"   # lwz r9, 0x58(r3)
+    "a3c9001c"   # lhz r30, 0x1c(r9)
+    "a009001a"   # lhz r0, 0x1a(r9)
+    "2c000000"   # cmpwi r0, 0
+    "41820130"   # beq 0x801abd3c
+    "3d40801b"   # lis r10, -0x7fe5
+    "892abdd4"   # lbz r9, -0x422c(r10)
+    "2c090001"   # cmpwi r9, 1
+    "41820148"   # beq 0x801abd64
+    "3c80801b"   # lis r4, -0x7fe5
+    "3d204330"   # lis r9, 0x4330
+    "91210010"   # stw r9, 0x10(r1)
+    "93c10014"   # stw r30, 0x14(r1)
+    "91210018"   # stw r9, 0x18(r1)
+    "9001001c"   # stw r0, 0x1c(r1)
+    "c824bda0"   # lfd f1, -0x4260(r4)
+    "c8410010"   # lfd f2, 0x10(r1)
+    "fc420828"   # fsub f2, f2, f1
+    "c8610018"   # lfd f3, 0x18(r1)
+    "fc630828"   # fsub f3, f3, f1
+    "efa21824"   # fdivs f29, f2, f3
+    "c3ff0000"   # lfs f31, 0(r31)
+    "3c60802f"   # lis r3, -0x7fd1
+    "38639180"   # addi r3, r3, -0x6e80
+    "4bee9e89"   # bl CMenuPcs::DrawInit
+    "3c80801b"   # lis r4, -0x7fe5
+    "38600004"   # li r3, 4
+    "3884bdcc"   # addi r4, r4, -0x4234
+    "4bff6bed"   # bl GXSetChanMatColor
+    "3c608033"   # lis r3, -0x7fcd
+    "3863dcc0"   # addi r3, r3, -0x2340
+    "38800000"   # li r4, 0
+    "4be8fb65"   # bl CTextureMan::SetTextureTev
+    "3c80801b"   # lis r4, -0x7fe5
+    "c0a4bda8"   # lfs f5, -0x4258(r4)
+    "d0a10008"   # stfs f5, 8(r1)
+    "c064bdb0"   # lfs f3, -0x4250(r4)
+    "c084bdb4"   # lfs f4, -0x424c(r4)
+    "c004bdb8"   # lfs f0, -0x4248(r4)
+    "ec3e0028"   # fsubs f1, f30, f0
+    "fc40f890"   # fmr f2, f31
+    "fcc02890"   # fmr f6, f5
+    "c0e4bdac"   # lfs f7, -0x4254(r4)
+    "fd003890"   # fmr f8, f7
+    "3c60802f"   # lis r3, -0x7fd1
+    "38639180"   # addi r3, r3, -0x6e80
+    "38800000"   # li r4, 0
+    "4bee95e1"   # bl CMenuPcs::DrawRect
+    "3c80801b"   # lis r4, -0x7fe5
+    "38600004"   # li r3, 4
+    "3884bdd0"   # addi r4, r4, -0x4230
+    "4bff6b91"   # bl GXSetChanMatColor
+    "3c80801b"   # lis r4, -0x7fe5
+    "c0a4bda8"   # lfs f5, -0x4258(r4)
+    "d0a10008"   # stfs f5, 8(r1)
+    "c004bdbc"   # lfs f0, -0x4244(r4)
+    "ec600772"   # fmuls f3, f0, f29
+    "c084bdc0"   # lfs f4, -0x4240(r4)
+    "c004bdc4"   # lfs f0, -0x423c(r4)
+    "ec3e0028"   # fsubs f1, f30, f0
+    "c004bdac"   # lfs f0, -0x4254(r4)
+    "ec5f002a"   # fadds f2, f31, f0
+    "fcc02890"   # fmr f6, f5
+    "c0e4bdac"   # lfs f7, -0x4254(r4)
+    "fd003890"   # fmr f8, f7
+    "3c60802f"   # lis r3, -0x7fd1
+    "38639180"   # addi r3, r3, -0x6e80
+    "38800000"   # li r4, 0
+    "4bee958d"   # bl CMenuPcs::DrawRect
+    "7fa3eb78"   # mr r3, r29
+    "4bee6295"   # bl CFont::DrawInit
+    "3c80801b"   # lis r4, -0x7fe5
+    "c004bdc8"   # lfs f0, -0x4238(r4)
+    "c03f0000"   # lfs f1, 0(r31)
+    "ec210028"   # fsubs f1, f1, f0
+    "d03f0000"   # stfs f1, 0(r31)
+    "3d40801b"   # lis r10, -0x7fe5
+    "892abdd4"   # lbz r9, -0x422c(r10)
+    "2c090002"   # cmpwi r9, 2
+    "4182002c"   # beq 0x801abd64
+    "83a1002c"   # lwz r29, 0x2c(r1)
+    "83c10030"   # lwz r30, 0x30(r1)
+    "83e10034"   # lwz r31, 0x34(r1)
+    "cba10038"   # lfd f29, 0x38(r1)
+    "cbc10040"   # lfd f30, 0x40(r1)
+    "cbe10048"   # lfd f31, 0x48(r1)
+    "80010054"   # lwz r0, 0x54(r1)
+    "7c0803a6"   # mtlr r0
+    "38210050"   # addi r1, r1, 0x50
+    "4e800020"   # blr 
+    "80610024"   # lwz r3, 0x24(r1)
+    "7fa4eb78"   # mr r4, r29
+    "7fe5fb78"   # mr r5, r31
+    "fc20f090"   # fmr f1, f30
+    "c0410020"   # lfs f2, 0x20(r1)
+    "83a1002c"   # lwz r29, 0x2c(r1)
+    "83c10030"   # lwz r30, 0x30(r1)
+    "83e10034"   # lwz r31, 0x34(r1)
+    "cba10038"   # lfd f29, 0x38(r1)
+    "cbc10040"   # lfd f30, 0x40(r1)
+    "cbe10048"   # lfd f31, 0x48(r1)
+    "80010054"   # lwz r0, 0x54(r1)
+    "7c0803a6"   # mtlr r0
+    "38210050"   # addi r1, r1, 0x50
+    "4bf5f784"   # b CGCharaObj::onDrawDebug
+) + bytes(0) + bytes.fromhex(
+    "4330000000000000"   # 2^52 as a double (u16 -> float)
+    "000000003f800000"   # 0.0, 1.0
+    "4220000040c00000"   # bar width 40, height 6
+    "41a00000421800004080000041980000"   # 20, 38, 4, 19: half width and the fill area
+    "41600000"   # 14: the line step
+    "202020ffff3020ff"   # colours: dark grey, red
+    "00000000"   # mode (HP_BAR_MODE_OFFSET): 0 bar, 1 text, 2 both
+    "5b5f63676b6f70717377797b7f830000")   # the bosses' monster ids, 0-terminated
+HP_BAR_MODE_OFFSET = 0x284
+HP_BAR_ORIG = bytes.fromhex(
+    "9421ff107c0802a6900100f4be8100c07c9c2378281c00217c741b787cbd2b78"
+    "7cde33787cff3b784081000c38600701480004c83c608022380000003b63be94"
+    "807b000c80db000080bb0004809b000890c1001090a10014908100189061001c"
+    "981b000d4bffee4d606320004bffee4d380000007e95a378901e0000569aa814"
+    "3b2100983b0100483ae100703ac1002038600000480004142c1f0000418201fc"
+    "3c60801e2815002039835a08816c0000814c0004812c0008810c000c80ec0010"
+    "80cc001480ac0018808c001c806c0020800c0024916100989141009c912100a0"
+    "910100a490e100a890c100ac90a100b0908100b4906100b8900100bc4080004c"
+    "2c1f00006740c803418200086740d8033c604e8090010098380300207f23cb78"
+    "900100bc388000284bffec993c608033398100983883966c386100087d8903a6"
+    "4e80042148000140408200442c1f000041820010386100084bfff0ed4800000c"
+    "386100084bfff105808100083800000080a1000c3860ffff7c8000387ca31838"
+    "900100089061000c480000fc28150021408200f42c1f00004082000c8001000c"
+    "900100083c60801e2c1f0000398359b8816c0000814c0004812c0008810c000c"
+    "80ec001080cc001480ac0018808c001c806c0020800c0024916100489141004c"
+    "912100509101005490e1005890c1005c90a1006090810064906100689001006c"
+    "4182001c3c607c9f3c0090833863faa69001004c90610048480000183c607c9f"
+    "3c8080833803fba6908100489001004c3c804e807f03c3783804002038800028"
+    "9001006c4bffeb7d3c608033398100483883966c386100087d8903a64e800421"
+    "2c1f00004182002080610008388000003800ffff7c6300387c8020389061000c"
+    "9001000880a100087fa3eb7880c1000c4bffc9d948000200")
+ENEMY_HEALTH_MODES = {"bar": 0, "text": 1, "both": 2}
+SHOW_ENEMY_HEALTH_PATCHES = [
+    (HP_BAR_DOL_OFFSET, HP_BAR_ORIG, HP_BAR_CODE),                          # the drawing function (mode: bar)
+    (0x20D524, bytes.fromhex("8011676c"), HP_BAR_ADDR.to_bytes(4, "big")),  # CGMonObj vtable -> it
+    (0x20D8AC, bytes.fromhex("801198fc"), bytes.fromhex("8007b814")),       # CGPartyObj vtable -> CGObject::onDrawDebug
+    (0x1D8494, b"%d/%d %d %d %d\0", b"%d/%d" + bytes(10)),                  # the text: hp/max
+    (0x5B3BC, bytes.fromhex("54000631"), bytes.fromhex("70000000")),        # rlwinm. r0,r0,0,24,24 -> andi. r0,r0,0
+    (0x11C344, bytes.fromhex("38048940"), bytes.fromhex("380489c0")),       # m_dbgFlags = 0x8940 -> 0x89C0
+]
+
+
+def patch_show_enemy_health(iso, mode="bar", apply=True):
+    """Each enemy shows its health: "bar", "text" (hp/max) or "both" (see
+    SHOW_ENEMY_HEALTH_PATCHES). Patching again with another mode changes it."""
+    want = ENEMY_HEALTH_MODES[mode]
+    with open(iso, "r+b" if apply else "rb") as f:
+        off, _ = gciso.dol_span(f)
+        f.seek(off + HP_BAR_DOL_OFFSET + HP_BAR_MODE_OFFSET)
+        have = f.read(1)[0]
+        if apply and have != 0 and have in ENEMY_HEALTH_MODES.values():
+            f.seek(off + HP_BAR_DOL_OFFSET)
+            current = bytearray(f.read(len(HP_BAR_CODE)))
+            current[HP_BAR_MODE_OFFSET] = 0
+            if bytes(current) == HP_BAR_CODE:            # ours, in another mode
+                f.seek(off + HP_BAR_DOL_OFFSET + HP_BAR_MODE_OFFSET)
+                f.write(b"\0")
+    _dol_patch(iso, SHOW_ENEMY_HEALTH_PATCHES, "show-enemy-health", apply)
+    if apply:
+        with open(iso, "r+b") as f:
+            off, _ = gciso.dol_span(f)
+            f.seek(off + HP_BAR_DOL_OFFSET + HP_BAR_MODE_OFFSET)
+            f.write(bytes([want]))
+    return True
+
+
+# HUD: boxes of text drawn over the game, from a table in memory. The client
+# (or a patch, like the play timer) fills a slot and it shows up, so a new
+# piece of UI is data, not code. CMenuPcs::draw (the 2D menu/HUD pass, every
+# screen) calls HUD_CODE right after its mode switch: the hook replaces
+# `lis r3, 0x802A` at 0x80095ED8, which HUD_CODE does again before it returns.
+# HUD_CODE first calls the table's callback, if set (code that fills slots
+# every frame, like the timer), then draws each shown slot: a box (a border
+# and a fill, CMenuPcs::DrawRect) and its text in the menu font
+# (MenuPcs.m_fonts[0]).
+# The code is in TRKDoWriteMemory, the table in TRKDoWriteRegisters: MetroTRK
+# debugger functions the game never calls.
+# Table (HUD_TABLE_ADDR): +0x00 callback address (0 = none), +0x08 the floats
+# 0, 1, 2, 4, then HUD_SLOT_COUNT slots of HUD_SLOT_SIZE bytes from +0x20:
+#   +0x00 flags: HUD_SHOWN 1, HUD_BOX 2 (draw the box), HUD_RIGHT 4 (text
+#         right-aligned at its x)
+#   +0x01 font palette (0x15: white)   +0x02 frames left (u16): counts down
+#         each frame and hides the slot at 0 (0 means it stays up)
+#   +0x04 box x, y, width, height       +0x14 text x, y, scale (floats, on
+#         a screen that is 640 x 448)
+#   +0x20 border colour, +0x24 fill colour, +0x28 text colour (RGBA)
+#   +0x2C text, zero-terminated, up to 51 characters
+HUD_CODE_ADDR = 0x801A9A6C
+HUD_TABLE_ADDR = 0x801A94FC
+HUD_SLOTS_ADDR = HUD_TABLE_ADDR + 0x20
+HUD_SLOT_SIZE = 0x60
+HUD_SLOT_COUNT = 6
+HUD_SHOWN, HUD_BOX, HUD_RIGHT = 1, 2, 4
+HUD_TEXT_OFFSET, HUD_TEXT_SIZE = 0x2C, 0x34
+HUD_HOOK_DOL_OFFSET = 0x85c78
+HUD_HOOK_PATCHED = bytes.fromhex("48113b95")   # bl HUD_CODE_ADDR
+HUD_CODE = bytes.fromhex(
+    "9421ffc0"   # stwu r1, -0x40(r1)
+    "7c0802a6"   # mflr r0
+    "90010044"   # stw r0, 0x44(r1)
+    "93e1003c"   # stw r31, 0x3c(r1)
+    "93c10038"   # stw r30, 0x38(r1)
+    "93a10034"   # stw r29, 0x34(r1)
+    "93810030"   # stw r28, 0x30(r1)
+    "3fe0801b"   # lis r31, -0x7fe5
+    "3bff94fc"   # addi r31, r31, -0x6b04
+    "819f0000"   # lwz r12, 0(r31)
+    "2c0c0000"   # cmpwi r12, 0
+    "4182000c"   # beq 0x801a9aa4
+    "7d8903a6"   # mtctr r12
+    "4e800421"   # bctrl
+    "3d20802f"   # lis r9, -0x7fd1
+    "83899278"   # lwz r28, -0x6d88(r9)
+    "3bdf0020"   # addi r30, r31, 0x20
+    "3ba00006"   # li r29, 6
+    "881e0000"   # lbz r0, 0(r30)
+    "70000001"   # andi. r0, r0, 1
+    "41820198"   # beq 0x801a9c54
+    "a19e0002"   # lhz r12, 2(r30)
+    "2c0c0000"   # cmpwi r12, 0
+    "41820024"   # beq 0x801a9aec
+    "398cffff"   # addi r12, r12, -1
+    "b19e0002"   # sth r12, 2(r30)
+    "2c0c0000"   # cmpwi r12, 0
+    "40820014"   # bne 0x801a9aec
+    "881e0000"   # lbz r0, 0(r30)
+    "700000fe"   # andi. r0, r0, 0xfe
+    "981e0000"   # stb r0, 0(r30)
+    "4800016c"   # b 0x801a9c54
+    "881e0000"   # lbz r0, 0(r30)
+    "70000002"   # andi. r0, r0, 2
+    "418200b8"   # beq 0x801a9bac
+    "3c60802f"   # lis r3, -0x7fd1
+    "38639180"   # addi r3, r3, -0x6e80
+    "4beebfe5"   # bl CMenuPcs::DrawInit
+    "38600004"   # li r3, 4
+    "389e0020"   # addi r4, r30, 0x20
+    "4bff8d4d"   # bl GXSetChanMatColor
+    "3c608033"   # lis r3, -0x7fcd
+    "3863dcc0"   # addi r3, r3, -0x2340
+    "38800000"   # li r4, 0
+    "4be91cc5"   # bl CTextureMan::SetTextureTev
+    "c03e0004"   # lfs f1, 4(r30)
+    "c05e0008"   # lfs f2, 8(r30)
+    "c07e000c"   # lfs f3, 0xc(r30)
+    "c09e0010"   # lfs f4, 0x10(r30)
+    "c0bf0008"   # lfs f5, 8(r31)
+    "d0a10008"   # stfs f5, 8(r1)
+    "fcc02890"   # fmr f6, f5
+    "c0ff000c"   # lfs f7, 0xc(r31)
+    "fd003890"   # fmr f8, f7
+    "3c60802f"   # lis r3, -0x7fd1
+    "38639180"   # addi r3, r3, -0x6e80
+    "38800000"   # li r4, 0
+    "4beeb749"   # bl CMenuPcs::DrawRect
+    "38600004"   # li r3, 4
+    "389e0024"   # addi r4, r30, 0x24
+    "4bff8cfd"   # bl GXSetChanMatColor
+    "c03e0004"   # lfs f1, 4(r30)
+    "c05e0008"   # lfs f2, 8(r30)
+    "c07e000c"   # lfs f3, 0xc(r30)
+    "c09e0010"   # lfs f4, 0x10(r30)
+    "c01f0010"   # lfs f0, 0x10(r31)
+    "ec21002a"   # fadds f1, f1, f0
+    "ec42002a"   # fadds f2, f2, f0
+    "c01f0014"   # lfs f0, 0x14(r31)
+    "ec630028"   # fsubs f3, f3, f0
+    "ec840028"   # fsubs f4, f4, f0
+    "c0bf0008"   # lfs f5, 8(r31)
+    "d0a10008"   # stfs f5, 8(r1)
+    "fcc02890"   # fmr f6, f5
+    "c0ff000c"   # lfs f7, 0xc(r31)
+    "fd003890"   # fmr f8, f7
+    "3c60802f"   # lis r3, -0x7fd1
+    "38639180"   # addi r3, r3, -0x6e80
+    "38800000"   # li r4, 0
+    "4beeb6f1"   # bl CMenuPcs::DrawRect
+    "881e002c"   # lbz r0, 0x2c(r30)
+    "2c000000"   # cmpwi r0, 0
+    "418200a0"   # beq 0x801a9c54
+    "2c1c0000"   # cmpwi r28, 0
+    "41820098"   # beq 0x801a9c54
+    "3c60802f"   # lis r3, -0x7fd1
+    "38639180"   # addi r3, r3, -0x6e80
+    "4beebf1d"   # bl CMenuPcs::DrawInit
+    "7f83e378"   # mr r3, r28
+    "c03f000c"   # lfs f1, 0xc(r31)
+    "4bee8829"   # bl CFont::SetMargin
+    "7f83e378"   # mr r3, r28
+    "38800001"   # li r4, 1
+    "4bee87ed"   # bl CFont::SetShadow
+    "7f83e378"   # mr r3, r28
+    "c03e001c"   # lfs f1, 0x1c(r30)
+    "4bee8805"   # bl CFont::SetScale
+    "7f83e378"   # mr r3, r28
+    "389e0028"   # addi r4, r30, 0x28
+    "4bee8785"   # bl CFont::SetColor
+    "7f83e378"   # mr r3, r28
+    "4bee83a9"   # bl CFont::DrawInit
+    "7f83e378"   # mr r3, r28
+    "889e0001"   # lbz r4, 1(r30)
+    "4bee8729"   # bl CFont::SetTlut
+    "c03e0014"   # lfs f1, 0x14(r30)
+    "881e0000"   # lbz r0, 0(r30)
+    "70000004"   # andi. r0, r0, 4
+    "41820018"   # beq 0x801a9c34
+    "7f83e378"   # mr r3, r28
+    "389e002c"   # addi r4, r30, 0x2c
+    "4bee7cfd"   # bl CFont::GetWidth
+    "c01e0014"   # lfs f0, 0x14(r30)
+    "ec200828"   # fsubs f1, f0, f1
+    "7f83e378"   # mr r3, r28
+    "4bee8801"   # bl CFont::SetPosX
+    "7f83e378"   # mr r3, r28
+    "c03e0018"   # lfs f1, 0x18(r30)
+    "4bee87ed"   # bl CFont::SetPosY
+    "7f83e378"   # mr r3, r28
+    "389e002c"   # addi r4, r30, 0x2c
+    "4bee82a9"   # bl CFont::Draw
+    "3bde0060"   # addi r30, r30, 0x60
+    "37bdffff"   # addic. r29, r29, -1
+    "4082fe58"   # bne 0x801a9ab4
+    "3c60802f"   # lis r3, -0x7fd1
+    "38639180"   # addi r3, r3, -0x6e80
+    "4beebe7d"   # bl CMenuPcs::DrawInit
+    "83810030"   # lwz r28, 0x30(r1)
+    "83a10034"   # lwz r29, 0x34(r1)
+    "83c10038"   # lwz r30, 0x38(r1)
+    "83e1003c"   # lwz r31, 0x3c(r1)
+    "80010044"   # lwz r0, 0x44(r1)
+    "7c0803a6"   # mtlr r0
+    "38210040"   # addi r1, r1, 0x40
+    "3c60802a"   # lis r3, -0x7fd6
+    "4e800020"   # blr
+)
+HUD_TABLE = bytes.fromhex(
+    "0000000000000000000000003f800000"
+    "40000000408000000000000000000000"
+    "00000000000000000000000000000000"
+    "00000000000000000000000000000000"
+    "00000000000000000000000000000000"
+    "00000000000000000000000000000000"
+    "00000000000000000000000000000000"
+    "00000000000000000000000000000000"
+    "00000000000000000000000000000000"
+    "00000000000000000000000000000000"
+    "00000000000000000000000000000000"
+    "00000000000000000000000000000000"
+    "00000000000000000000000000000000"
+    "00000000000000000000000000000000"
+    "00000000000000000000000000000000"
+    "00000000000000000000000000000000"
+    "00000000000000000000000000000000"
+    "00000000000000000000000000000000"
+    "00000000000000000000000000000000"
+    "00000000000000000000000000000000"
+    "00000000000000000000000000000000"
+    "00000000000000000000000000000000"
+    "00000000000000000000000000000000"
+    "00000000000000000000000000000000"
+    "00000000000000000000000000000000"
+    "00000000000000000000000000000000"
+    "00000000000000000000000000000000"
+    "00000000000000000000000000000000"
+    "00000000000000000000000000000000"
+    "00000000000000000000000000000000"
+    "00000000000000000000000000000000"
+    "00000000000000000000000000000000"
+    "00000000000000000000000000000000"
+    "00000000000000000000000000000000"
+    "00000000000000000000000000000000"
+    "00000000000000000000000000000000"
+    "00000000000000000000000000000000"
+    "00000000000000000000000000000000"
+)
+HUD_CODE_ORIG = bytes.fromhex(
+    "542b06fe7c2c0b78216bf6c07c21596e"
+    "7c0802a6900c0004bf6cffec7c7b1b78"
+    "3c60801e3be35718389f018038600001"
+    "839b0020a3bb001c8bdb00187f86e378"
+    "88bb00147fa7eb787fc8f3784cc63182"
+    "48004a2157c007bd4182004038610064"
+    "3880000038a000404be5b93938600080"
+    "38a00040380000129861006838610064"
+    "3880004090a100649801006c48003631"
+    "386000004800019093a100207f63db78"
+    "388000404bffeed557c0067341820038"
+    "578006fe3881010080a100207f63db78"
+    "7c8402144bffed857f84e37838610100"
+    "38a1002038c00000480012997c7e1b78"
+    "4800003480a100207f63db7838810100"
+    "4bffed5957c0effe7f84e37838610100"
+    "38a100206806000138e0000048002625"
+    "7c7e1b787f63db78388000004bffee8d"
+    "2c1e00004082003c386100a438800000"
+    "38a000404be5b86d3860004038000080"
+    "906100a47f63db78388100a438a00040"
+    "980100a89bc100ac4bffed7d7c7e1b78"
+    "2c1e00004182008c381ef90028000006"
+    "418100443c6080225400103a3863be50"
+    "7c03002e7c0903a64e8004203bc00015"
+    "480000283bc00013480000203bc00021"
+    "480000183bc00022480000103bc00020"
+    "480000083bc000033861002438800000"
+    "38a000404be5b7dd3860008038000040"
+    "98610028386100243880004090010024"
+    "9bc1002c480034d93860000048000038"
+    "389f0060386000014cc6318248004875"
+    "7f63db784bffe731389f00807c7f1b78"
+    "386000017fe5fb784cc6318248004855"
+    "7fe3fb78"
+)
+HUD_TABLE_ORIG = bytes.fromhex(
+    "9421ff207c0802a638800000900100e4"
+    "93e100dc93c100d893a100d4938100d0"
+    "7c7c1b788be30018a3c3001ca3a30020"
+    "4bfff4b97c1ee840408100403861004c"
+    "3880000038a000404be5bec938600080"
+    "38a0004038000014986100503861004c"
+    "3880004090a1004c9801005448003bc1"
+    "38600000480001fc7f83e37838800040"
+    "4bfff4692c1f00024182006440800014"
+    "2c1f0000418200184080003448000090"
+    "2c1f000440800088480000647fc3f378"
+    "7fa4eb787f85e37838c1000838e00000"
+    "48002aa17c7f1b78480000687fc3f378"
+    "7fa4eb787f85e37838c1000838e00000"
+    "480025757c7f1b78480000487fc3f378"
+    "7fa4eb787f85e37838c1000838e00000"
+    "480023e57c7f1b78480000287fc3f378"
+    "7fa4eb787f85e37838c1000838e00000"
+    "48001f8d7c7f1b78480000083be00703"
+    "7f83e378388000004bfff3e12c1f0000"
+    "4082003c3861008c3880000038a00040"
+    "4be5bdc138600040380000809061008c"
+    "7f83e3783881008c38a0004098010090"
+    "9be100944bfff2d17c7f1b782c1f0000"
+    "418200b42c1f0703418200384080001c"
+    "2c1f070141820034408000402c1f0302"
+    "41820030480000542c1f070641820044"
+    "408000482c1f07054080003048000024"
+    "3be00012480000383be0001448000030"
+    "3be00002480000283be0001548000020"
+    "3be00021480000183be0002248000010"
+    "3be00020480000083be000033861000c"
+    "3880000038a000404be5bd0938600080"
+    "38000040986100103861000c38800040"
+    "9001000c9be1001448003a0538600000"
+    "480000403c80801e3860000138845778"
+    "4cc6318248004d9d7f83e3784bffec59"
+    "7c7f1b783c80801e3860000138845798"
+)
+HUD_PATCHES = [
+    (0x19929c, HUD_TABLE_ORIG, HUD_TABLE),
+    (0x19980c, HUD_CODE_ORIG, HUD_CODE),
+    (HUD_HOOK_DOL_OFFSET, bytes.fromhex("3c60802a"), HUD_HOOK_PATCHED),   # CMenuPcs::draw -> HUD_CODE
+]
+
+
+def hud_slot(text=b"", flags=HUD_SHOWN | HUD_BOX, frames=0, box=(0.0, 0.0, 0.0, 0.0), text_xy=(0.0, 0.0),
+             scale=0.8, palette=0x15, border=(200, 210, 230, 200), fill=(20, 30, 45, 190),
+             color=(255, 255, 255, 255)):
+    """The HUD_SLOT_SIZE bytes of one HUD slot (see HUD_PATCHES)."""
+    if isinstance(text, str):
+        text = text.encode("ascii", "replace")
+    text = text[:HUD_TEXT_SIZE - 1]
+    b = bytearray(HUD_SLOT_SIZE)
+    b[0], b[1] = flags, palette
+    b[2:4] = frames.to_bytes(2, "big")
+    b[4:0x20] = struct.pack(">7f", *box, *text_xy, scale)
+    b[0x20:0x2C] = bytes(border) + bytes(fill) + bytes(color)
+    b[HUD_TEXT_OFFSET:HUD_TEXT_OFFSET + len(text)] = text
+    return bytes(b)
+
+
+def patch_hud(iso, apply=True):
+    """The HUD: boxes of text drawn from a table in memory (see HUD_PATCHES).
+    Once its hook and code are in, the table belongs to the patches that use
+    it (the play timer sets the callback and slot 0), so it is left alone."""
+    with open(iso, "rb") as f:
+        off, _ = gciso.dol_span(f)
+        installed = True
+        for at, _, new in HUD_PATCHES[1:]:
+            f.seek(off + at)
+            installed = installed and f.read(len(new)) == new
+    if installed:
+        return True
+    return _dol_patch(iso, HUD_PATCHES, "hud", apply)
+
+
+# Play timer (option Show Play Timer): a clock in HUD slot 0, in the top-right
+# corner. It counts the save's play time (Game.m_gameWork.m_frameCounter,
+# 0x8021DE9C, 30 a second), which stops while the game is paused, in a menu or
+# loading, and keeps going through cutscenes and talking. It is hidden on the
+# title screen and the file menus, while Game.m_gameWork.m_menuStageMode
+# (0x8021DE88) is 0. That turns 1 when New Game is chosen or a save is loaded.
+#   play time: shows the save's play time itself.
+#   speedrun:  keeps its own count of that play time, which can be paused and
+#              reset without touching the save. Hold L + R + Z: D-pad Up
+#              pauses/resumes, Down resets to 0 (stopped), Left hides/shows it.
+#              automatic: it also starts at 0 when New Game is chosen or a
+#              save is loaded, and stops on the final blow: when Memoira
+#              (monster 0x9A or 0xB6, the last fight in last_4, whose script
+#              wins once its hp is 0) is alive with 0 hp.
+#              manual: it only starts, stops and resets with the buttons.
+# PLAY_TIMER_CODE is the HUD table's callback. It writes the time into slot 0.
+# It is in TRKDoReadRegisters, its data in TRKDoStep (PLAY_TIMER_DATA_ADDR, a
+# fixed address the client or LiveSplit can read): +0 mode (1 play time,
+# 2 speedrun automatic, 3 speedrun manual), +1 running, +2 hidden, +3 stage
+# mode last frame, +4 last play time seen, +8 the speedrun count in frames,
+# +0x10 the format, then the final-blow check (+0x20).
+PLAY_TIMER_ADDR = 0x801A978C
+PLAY_TIMER_DATA_ADDR = 0x801A922C
+PLAY_TIMER_MODES = {"play_time": 1, "speedrun": 2, "manual": 3}
+PLAY_TIMER_CODE = bytes.fromhex(
+    "9421ffe0"   # stwu r1, -0x20(r1)
+    "7c0802a6"   # mflr r0
+    "90010024"   # stw r0, 0x24(r1)
+    "93e1001c"   # stw r31, 0x1c(r1)
+    "93c10018"   # stw r30, 0x18(r1)
+    "3fe0801b"   # lis r31, -0x7fe5
+    "3bff922c"   # addi r31, r31, -0x6dd4
+    "3fc0801b"   # lis r30, -0x7fe5
+    "3bde951c"   # addi r30, r30, -0x6ae4
+    "881f0000"   # lbz r0, 0(r31)
+    "2c000000"   # cmpwi r0, 0
+    "41820138"   # beq 0x801a98f0
+    "3d208022"   # lis r9, -0x7fde
+    "80a9de9c"   # lwz r5, -0x2164(r9)
+    "80df0004"   # lwz r6, 4(r31)
+    "90bf0004"   # stw r5, 4(r31)
+    "3d208022"   # lis r9, -0x7fde
+    "8949de88"   # lbz r10, -0x2178(r9)
+    "897f0003"   # lbz r11, 3(r31)
+    "995f0003"   # stb r10, 3(r31)
+    "2c0a0000"   # cmpwi r10, 0
+    "41820110"   # beq 0x801a98f0
+    "2c0b0000"   # cmpwi r11, 0
+    "4082001c"   # bne 0x801a9804
+    "2c000002"   # cmpwi r0, 2
+    "40820014"   # bne 0x801a9804
+    "39800000"   # li r12, 0
+    "919f0008"   # stw r12, 8(r31)
+    "39800001"   # li r12, 1
+    "999f0001"   # stb r12, 1(r31)
+    "2c000001"   # cmpwi r0, 1
+    "41820090"   # beq 0x801a9898
+    "4bfffa41"   # bl the final-blow check
+    "7ce62850"   # subf r7, r6, r5
+    "28070008"   # cmplwi r7, 8
+    "4181001c"   # bgt 0x801a9834
+    "881f0001"   # lbz r0, 1(r31)
+    "2c000001"   # cmpwi r0, 1
+    "40820010"   # bne 0x801a9834
+    "811f0008"   # lwz r8, 8(r31)
+    "7d083a14"   # add r8, r8, r7
+    "911f0008"   # stw r8, 8(r31)
+    "3d208024"   # lis r9, -0x7fdc
+    "a1493254"   # lhz r10, 0x3254(r9)
+    "a1693258"   # lhz r11, 0x3258(r9)
+    "71400070"   # andi. r0, r10, 0x70
+    "2c000070"   # cmpwi r0, 0x70
+    "40820040"   # bne 0x801a9888
+    "71600008"   # andi. r0, r11, 8
+    "41820010"   # beq 0x801a9860
+    "881f0001"   # lbz r0, 1(r31)
+    "68000001"   # xori r0, r0, 1
+    "981f0001"   # stb r0, 1(r31)
+    "71600004"   # andi. r0, r11, 4
+    "41820010"   # beq 0x801a9874
+    "38000000"   # li r0, 0
+    "901f0008"   # stw r0, 8(r31)
+    "981f0001"   # stb r0, 1(r31)
+    "71600001"   # andi. r0, r11, 1
+    "41820010"   # beq 0x801a9888
+    "881f0002"   # lbz r0, 2(r31)
+    "68000001"   # xori r0, r0, 1
+    "981f0002"   # stb r0, 2(r31)
+    "881f0002"   # lbz r0, 2(r31)
+    "2c000000"   # cmpwi r0, 0
+    "40820060"   # bne 0x801a98f0
+    "80bf0008"   # lwz r5, 8(r31)
+    "38000003"   # li r0, 3
+    "7cc50396"   # divwu r6, r5, r0
+    "3800001e"   # li r0, 0x1e
+    "7ce50396"   # divwu r7, r5, r0
+    "1d07000a"   # mulli r8, r7, 0xa
+    "7d083050"   # subf r8, r8, r6
+    "3800003c"   # li r0, 0x3c
+    "7d670396"   # divwu r11, r7, r0
+    "1c0b003c"   # mulli r0, r11, 0x3c
+    "7ce03850"   # subf r7, r0, r7
+    "3800003c"   # li r0, 0x3c
+    "7cab0396"   # divwu r5, r11, r0
+    "1c05003c"   # mulli r0, r5, 0x3c
+    "7cc05850"   # subf r6, r0, r11
+    "387e002c"   # addi r3, r30, 0x2c
+    "389f0010"   # addi r4, r31, 0x10
+    "4cc63182"   # crclr cr1eq
+    "4800c015"   # bl sprintf
+    "881e0000"   # lbz r0, 0(r30)
+    "60000001"   # ori r0, r0, 1
+    "981e0000"   # stb r0, 0(r30)
+    "48000010"   # b 0x801a98fc
+    "881e0000"   # lbz r0, 0(r30)
+    "700000fe"   # andi. r0, r0, 0xfe
+    "981e0000"   # stb r0, 0(r30)
+    "83c10018"   # lwz r30, 0x18(r1)
+    "83e1001c"   # lwz r31, 0x1c(r1)
+    "80010024"   # lwz r0, 0x24(r1)
+    "7c0803a6"   # mtlr r0
+    "38210020"   # addi r1, r1, 0x20
+    "4e800020"   # blr
+)
+PLAY_TIMER_DATA = bytes.fromhex(
+    "00000000"
+    "00000000"
+    "00000000"
+    "00000000"
+    "25643a25"
+    "3032643a"
+    "25303264"
+    "2e256400"
+    "881f0000"   # lbz r0, 0(r31)
+    "2c000002"   # cmpwi r0, 2
+    "4c820020"   # bnelr
+    "3d208022"   # lis r9, -0x7fde
+    "39296020"   # addi r9, r9, 0x6020
+    "39400040"   # li r10, 0x40
+    "7d4903a6"   # mtctr r10
+    "80090010"   # lwz r0, 0x10(r9)
+    "2c00009a"   # cmpwi r0, 0x9a
+    "4182000c"   # beq 0x801a927c
+    "2c0000b6"   # cmpwi r0, 0xb6
+    "40820028"   # bne 0x801a92a0
+    "a009001a"   # lhz r0, 0x1a(r9)
+    "2c000000"   # cmpwi r0, 0
+    "4182001c"   # beq 0x801a92a0
+    "a009001c"   # lhz r0, 0x1c(r9)
+    "2c000000"   # cmpwi r0, 0
+    "40820010"   # bne 0x801a92a0
+    "38000000"   # li r0, 0
+    "981f0001"   # stb r0, 1(r31)
+    "4e800020"   # blr
+    "39290110"   # addi r9, r9, 0x110
+    "4200ffc4"   # bdnz 0x801a9268
+    "4e800020"   # blr
+)
+PLAY_TIMER_CODE_ORIG = bytes.fromhex(
+    "9421ff207c0802a63ca0801e900100e4"
+    "93e100dc3be5571893c100d893a100d4"
+    "7c7d1b78a083001ca00300207c040040"
+    "408100403861004c3880000038a00040"
+    "4be5bc413860008038a0004038000014"
+    "986100503861004c3880004090a1004c"
+    "98010054480039393860000048000258"
+    "38800080380004689881009038800000"
+    "9001008c4bfff20580bd0008389f0098"
+    "386000044cc6318248004cb97fa3eb78"
+    "3881008c38a000404bffef1d80bd0008"
+    "389f0098386000044cc6318248004c95"
+    "7fa5eb7838c100083860000038800024"
+    "38e00001480027fd7c7e1b78389f00c0"
+    "386000047fc5f3784cc6318248004c65"
+    "80bd0008389f0098386000044cc63182"
+    "48004c512c1e0000408200207fa5eb78"
+    "38c10008386000003880002138e00001"
+    "480022a57c7e1b787fc5f378389f00f8"
+    "386000044cc6318248004c1980bd0008"
+    "389f0098386000044cc6318248004c05"
+    "2c1e0000408200207fa5eb7838c10008"
+    "386000003880006038e00001480020e9"
+    "7c7e1b787fc5f378389f012038600004"
+    "4cc6318248004bcd"
+)
+PLAY_TIMER_DATA_ORIG = bytes.fromhex(
+    "9421fea07c0802a63880000090010164"
+    "bf61014c7c7b1b784bfff7a18bfb0018"
+    "83bb00202c1f0010839b00244182002c"
+    "4080001c2c1f000141820068408000b4"
+    "2c1f000040800014480000a82c1f0012"
+    "408000a04800004c8bdb001c281e0001"
+    "408000cc386101083880000038a00040"
+    "4be5c1713860008038a0004038000011"
+)
+PLAY_TIMER_SLOT = hud_slot(flags=HUD_BOX | HUD_RIGHT, box=(512.0, 18.0, 112.0, 28.0), text_xy=(616.0, 20.0))
+PLAY_TIMER_PATCHES = [
+    (0x198fcc, PLAY_TIMER_DATA_ORIG, PLAY_TIMER_DATA),
+    (0x19952c, PLAY_TIMER_CODE_ORIG, PLAY_TIMER_CODE),
+    (0x19929c, bytes(4), PLAY_TIMER_ADDR.to_bytes(4, "big")),       # HUD callback -> the timer
+    (0x1992bc, bytes(HUD_SLOT_SIZE), PLAY_TIMER_SLOT),                    # HUD slot 0
+]
+
+
+def patch_play_timer(iso, mode="speedrun", apply=True):
+    """Show a play timer in the corner of the screen: "play_time" (the save's
+    play time), "speedrun" (its own count, with controls, starting and
+    stopping by itself) or "manual" (only the controls). Needs the HUD
+    (patch_hud, applied here too). See PLAY_TIMER_PATCHES. Patching again with
+    another mode changes it."""
+    want = PLAY_TIMER_MODES[mode]
+    patch_hud(iso, apply)
+    data_at = PLAY_TIMER_PATCHES[0][0]
+    with open(iso, "r+b" if apply else "rb") as f:
+        off, _ = gciso.dol_span(f)
+        f.seek(off + data_at)
+        if apply and f.read(1)[0] in PLAY_TIMER_MODES.values():   # ours, in another mode
+            f.seek(off + data_at)
+            f.write(b"\0")
+    _dol_patch(iso, PLAY_TIMER_PATCHES, "play-timer", apply)
+    if apply:
+        with open(iso, "r+b") as f:
+            off, _ = gciso.dol_span(f)
+            f.seek(off + data_at)
+            f.write(bytes([want]))
+    return True
+
+# Grooming tools (AP option Grooming Tools): in a Moogle Nest the Moogle's
+# dyes, soap and scissors only work once their item is found.
+# CChara::CModel::MogFurFrame grooms the fur while A is held: it tests
+# `rlwinm. r0, r25, 0, 23, 23` at 0x800DFDF4 and skips the brush when it is
+# clear. That becomes a call to GROOMING_LOCK_CODE, which also needs the tool
+# held (Chara.MogFur().m_commandIndex at 0x802E88A4: 0 red dye, 1 blue dye,
+# 2 green dye, 3 wash, 4 trim) to have its bit set in the byte at
+# GROOMING_TOOLS_ADDR. The client sets those bits from the items received.
+# Without the bit the game acts as if A wasn't pressed. The code is in
+# TRKDoStep, after the play timer's data (MetroTRK debugger code the game
+# never calls).
+GROOMING_TOOLS_ADDR = 0x801A92AC
+GROOMING_LOCK_ADDR = 0x801A92B0
+GROOMING_LOCK_CODE = bytes.fromhex(
+    "00000000"   # GROOMING_TOOLS_ADDR: the tools owned, a bit per tool (set by the client)
+    "572005ef"   # rlwinm. r0, r25, 0, 23, 23    A held?
+    "4d820020"   # beqlr
+    "3d80802f"   # lis r12, 0x802F
+    "818c88a4"   # lwz r12, -0x775C(r12)         the tool held
+    "3d60801b"   # lis r11, 0x801B
+    "896b92ac"   # lbz r11, -0x6D54(r11)         the tools owned
+    "7d6b6430"   # srw r11, r11, r12
+    "71600001"   # andi. r0, r11, 1              owned: A counts
+    "4e800020"   # blr
+)
+GROOMING_LOCK_ORIG = bytes.fromhex(
+    "9861010c386101083880004090a101089801011048003e69386000004800017048001e1d7c03e840"
+)
+GROOMING_LOCK_PATCHES = [
+    (0x19904c, GROOMING_LOCK_ORIG, GROOMING_LOCK_CODE),
+    (0xcfb94, bytes.fromhex("572005ef"), bytes.fromhex("480c94bd")),   # MogFurFrame: bl GROOMING_LOCK_ADDR
+]
+
+
+def patch_grooming_tools(iso, apply=True):
+    """The Moogle's grooming tools only work once found (see
+    GROOMING_LOCK_PATCHES)."""
+    return _dol_patch(iso, GROOMING_LOCK_PATCHES, "grooming-tools", apply)
+
 # Picked-up artifacts are kept: picking an artifact (ids 0x9F-0xFF) up off the
 # ground normally puts it in one of the caravan's 4 temporary slots
 # (CCaravanWork::AddTmpArtifact, 0x800A14E0), and at the end of the dungeon
@@ -898,6 +1722,19 @@ def patch_keep_artifacts(iso, apply=True):
     """Artifacts picked up in a dungeon go straight into the artifact list
     (see KEEP_ARTIFACTS_PATCHES)."""
     return _dol_patch(iso, KEEP_ARTIFACTS_PATCHES, "keep-artifacts", apply)
+
+
+def apply_other_gender(iso):
+    """The "Other" gender choice at character creation, with neutral wording in
+    the game's gendered text (see othergender.py). Every ISO the patcher builds
+    gets it."""
+    import othergender
+    try:
+        added = othergender.apply(iso)
+        print("Other gender: added to character creation"
+              + (f" ({added} neutral wording(s) added)" if added else ""))
+    except Exception as e:
+        print(f"note: could not add the Other gender ({e})")
 
 
 def _dol_patch(iso, patches, name, apply=True):
@@ -1459,21 +2296,26 @@ def goblin_wall_always_visible_status(iso):
 # slow = CCaravanWork+0x3E+2*8) gives the effect but no particle/sound - CGCharaObj::setSta only starts those when it
 # sees a timer go 0 -> nonzero, and the per-frame loop in onFramePostCalc only
 # ever counts timers down. This hook gives the client a "pending" table
-# instead: each frame, for player 1's character only, a nonzero pending[i]
+# instead: each frame, for every player's character, a nonzero pending[i]
 # replaces the value the loop passes to setSta(i, ...) and is then cleared, so
 # the game applies the status itself (0 -> pending = full visual + sound).
 #
 # The hook replaces `lhzx r3,r3,r0` (load timer[i]) at 0x80111A48 with a `bl`
 # into TRKDoReadMemory's space (0x801A9CA8, 0x244 bytes): MetroTRK debugger
 # code, only reached when a hardware debugger sends a read-memory request.
-# The client writes a 2-byte duration (frames) to TRAP_PENDING_TABLE + 2*i:
-# i = 0 freeze, 1 burn, 2 poison, 4 paralysis, 8 slow. Paralysis also gets
+# Each controller has its own table of 9 statuses: the client writes a 2-byte
+# duration (frames) to TRAP_PENDING_TABLE + 18*controller + 2*i, i = 0
+# freeze, 1 burn, 2 poison, 4 paralysis, 8 slow (controller 0 = controller 1).
+# The controller is CGObject::m_classWorkIndex (+0x52). The byte before it,
+# m_ownerType (+0x51), is 0 for the party's characters, so one halfword load
+# of +0x51 is 0-3 for them and 256 or more for monsters. Paralysis also gets
 # changeStat(10) (the stunned state), which setSta alone doesn't do.
 TRAP_HOOK_DOL_OFFSET = 0x1017E8                   # RAM 0x80111A48
 TRAP_HOOK_ORIG = bytes.fromhex("7c63022e")        # lhzx r3, r3, r0
 TRAP_HOOK_PATCHED = bytes.fromhex("48098261")     # bl 0x801A9CA8
 TRAP_CAVE_DOL_OFFSET = 0x199A48                   # RAM 0x801A9CA8
-TRAP_PENDING_TABLE = 0x801A9D28                   # RAM, u16[39]
+TRAP_PENDING_TABLE = 0x801A9D28                   # RAM, u16[9] per controller (78 bytes of room)
+TRAP_PENDING_STRIDE = 18
 TRAP_CAVE_ORIG = bytes.fromhex(
     "542b06fe7c2c0b78216bf6c07c21596e7c0802a6900c0004bf4cffe87c7f1b783c60801e"
     "3ba35718389d01b038600001835f0020a37f001c8bdf00187f46d37888bf00147f67db78"
@@ -1483,11 +2325,50 @@ TRAP_CAVE_ORIG = bytes.fromhex(
     "480010817c7e1b784800002457c0effe7f44d3783861010038a1")
 TRAP_CAVE_PATCHED = bytes.fromhex(
     "7c63022e"   # lhzx  r3, r3, r0       original: r3 = timer[i]
+    "a1990051"   # lhz   r12, 0x51(r25)   m_ownerType << 8 | m_classWorkIndex
+    "280c0003"   # cmplwi r12, 3
+    "4d810020"   # bgtlr                  not a player's character -> unchanged
+    "281d0010"   # cmplwi r29, 16         r29 = 2*i: only statuses 0-8 have a table entry
+    "4d810020"   # bgtlr
+    "1d8c0012"   # mulli r12, r12, 18     this controller's table
+    "7d8cea14"   # add   r12, r12, r29
+    "3d60801b"   # lis   r11, 0x801B
+    "7d6b6214"   # add   r11, r11, r12
+    "a18b9d28"   # lhz   r12, -0x62d8(r11) pending[controller][i] (TRAP_PENDING_TABLE)
+    "2c0c0000"   # cmpwi r12, 0
+    "4d820020"   # beqlr                  nothing pending
+    "386c0001"   # addi  r3, r12, 1       loop subtracts 1 -> setSta(i, pending)
+    "39800000"   # li    r12, 0
+    "b18b9d28"   # sth   r12, -0x62d8(r11) clear it
+    "2c1d0008"   # cmpwi r29, 8           paralysis (i == 4)?
+    "4c820020"   # bnelr
+    "9421fff0"   # stwu  r1, -0x10(r1)    paralysis also needs the stunned state,
+    "7c0802a6"   # mflr  r0               as CGCharaObj::effective() does:
+    "90010014"   # stw   r0, 0x14(r1)
+    "90610008"   # stw   r3, 0x8(r1)
+    "7f23cb78"   # mr    r3, r25
+    "3880000a"   # li    r4, 10
+    "38a00000"   # li    r5, 0
+    "38c00000"   # li    r6, 0
+    "4bf7ce59"   # bl    CGPrgObj::changeStat(10, 0, 0)  (0x80126B68)
+    "80610008"   # lwz   r3, 0x8(r1)
+    "80010014"   # lwz   r0, 0x14(r1)
+    "7c0803a6"   # mtlr  r0
+    "38210010"   # addi  r1, r1, 0x10
+    "4e800020"   # blr
+) + bytes(TRAP_PENDING_TABLE - 0x801A9CA8 - 128 + 39 * 2)
+assert len(TRAP_CAVE_ORIG) == len(TRAP_CAVE_PATCHED)
+# The code older versions wrote, which served one character only: controller
+# 1's (below), and before that the save's first character (0x8021F270). Found
+# on an ISO, either is replaced.
+_TRAP_CAVE_CONTROLLER_1 = bytes.fromhex(
+    "7c63022e"   # lhzx  r3, r3, r0       original: r3 = timer[i]
     "81990058"   # lwz   r12, 0x58(r25)   this->m_scriptHandle
-    "3d608022"   # lis   r11, 0x8022
-    "396bf270"   # addi  r11, r11, -0xd90 (0x8021F270 = player 1's CCaravanWork)
+    "3d608023"   # lis   r11, 0x8023
+    "816ba440"   # lwz   r11, -0x5bc0(r11) Game.m_scriptFoodBase[0] (0x8022A440): the
+                 #                         record of the character on controller 1
     "7c0c5800"   # cmpw  r12, r11
-    "4c820020"   # bnelr                  not player 1 -> unchanged
+    "4c820020"   # bnelr                  not controller 1 -> unchanged
     "3d60801b"   # lis   r11, 0x801B
     "396b9d28"   # addi  r11, r11, -0x62d8 (TRAP_PENDING_TABLE)
     "7d8bea2e"   # lhzx  r12, r11, r29    pending[i] (r29 = 2*i)
@@ -1513,7 +2394,9 @@ TRAP_CAVE_PATCHED = bytes.fromhex(
     "38210010"   # addi  r1, r1, 0x10
     "4e800020"   # blr
 ) + bytes(TRAP_PENDING_TABLE - 0x801A9CA8 - 120 + 39 * 2)
-assert len(TRAP_CAVE_ORIG) == len(TRAP_CAVE_PATCHED)
+_RECORD_1 = bytes.fromhex("3d608022396bf270")
+_CONTROLLER_1 = bytes.fromhex("3d608023816ba440")
+TRAP_CAVE_PATCHED_OLD = (_TRAP_CAVE_CONTROLLER_1, _TRAP_CAVE_CONTROLLER_1.replace(_CONTROLLER_1, _RECORD_1))
 
 
 def _trap_visuals_state(f):
@@ -1526,6 +2409,8 @@ def _trap_visuals_state(f):
         return True
     if hook == TRAP_HOOK_ORIG and cave == TRAP_CAVE_ORIG:
         return False
+    if cave in TRAP_CAVE_PATCHED_OLD:
+        return False                     # an older version's code: rewrite it
     raise ValueError(f"unexpected bytes at trap-visuals patch sites (hook {hook.hex()}) "
                       f"- wrong game version or partially patched?")
 
@@ -1547,7 +2432,7 @@ def patch_trap_visuals(iso, apply=True):
 
 # Item drops: the AP client can put an item on the ground in front of the
 # player instead of in the bag. It writes the item id to ITEM_DROP_PENDING.
-# Once a frame, for player 1 only, this code asks the game whether the player
+# Once a frame, for the character on controller 1 only, this code asks the game whether the player
 # can put something down (CGPartyObj::canPlayerPutItem: alive, free to act,
 # not carrying anything) and, if so, creates the item the way the game's own
 # "put an item down" does (CGItemObj::CreateFromScript(0, 9, id, player, 0.0,
@@ -1577,10 +2462,11 @@ ITEM_DROP_PATCHED = bytes.fromhex(
     "7c0802a6"   # mflr  r0
     "90010024"   # stw   r0, 0x24(r1)
     "81990058"   # lwz   r12, 0x58(r25)   this->m_scriptHandle
-    "3d608022"   # lis   r11, 0x8022
-    "396bf270"   # addi  r11, r11, -0xd90 (0x8021F270 = player 1's CCaravanWork)
+    "3d608023"   # lis   r11, 0x8023
+    "816ba440"   # lwz   r11, -0x5bc0(r11) Game.m_scriptFoodBase[0] (0x8022A440): the
+                 #                         record of the character on controller 1
     "7c0c5800"   # cmpw  r12, r11
-    "40820060"   # bne   done             not player 1
+    "40820060"   # bne   done             not controller 1
     "2c1d0000"   # cmpwi r29, 0
     "40820058"   # bne   done             only on the loop's first status (once a frame)
     "3d60801b"   # lis   r11, 0x801B
@@ -1612,6 +2498,7 @@ ITEM_DROP_PATCHED = bytes.fromhex(
     "4bfffe90"   # b     0x801A9CA8       on into the trap code, which returns to the loop
 )
 assert len(ITEM_DROP_ORIG) == len(ITEM_DROP_PATCHED)
+ITEM_DROP_PATCHED_OLD = ITEM_DROP_PATCHED.replace(_CONTROLLER_1, _RECORD_1)
 
 
 def _item_drops_state(f):
@@ -1620,7 +2507,7 @@ def _item_drops_state(f):
     code = f.read(len(ITEM_DROP_PATCHED))
     if code == ITEM_DROP_PATCHED:
         return True
-    if code == ITEM_DROP_ORIG:
+    if code in (ITEM_DROP_ORIG, ITEM_DROP_PATCHED_OLD):
         return False
     raise ValueError("unexpected bytes at the item-drop patch site - wrong game version?")
 
@@ -2612,16 +3499,6 @@ STAGE_KEY_DESC_TEXT = {
     "cave": "Selepation Key",    # dropped "Cave" - needed to fit
     "swamp": "Conall Key",       # dropped "Curach" - needed to fit
 }
-# For a few IDs, the nearest "Help Message" placeholder(s) don't have enough
-# spare room for set_item_description()'s default nearby auto-search, so they
-# use an explicit farther donor slot, per the description recipe in
-# Documentation/Adding Custom Items and Artifacts.md.
-STAGE_KEY_DESC_DONOR = {
-    "lava": 0xFB,
-    "cave": 0xFC,   # distinct from lava's 0xFB - one shared donor lacks room for both
-    "mine": 0x110,
-    "swamp": 0x162,
-}
 
 
 def create_stage_key_items(iso, donor=STAGE_KEY_DONOR):
@@ -2630,14 +3507,17 @@ def create_stage_key_items(iso, donor=STAGE_KEY_DONOR):
     from chests at all - see Documentation/Artifact-Gated Stage
     Entrances.md, step 1, for why cloning a real donor is required rather
     than just naming the slot. Each also gets an in-game description naming
-    the dungeon it unlocks."""
+    the dungeon it unlocks. The descriptions borrow bytes from unused
+    "Help Message" entries, never from the AP Item's, whose description would
+    otherwise go blank."""
     import customitem
     friendly = dict(lootcft.DUNGEONS)
+    texts = {}
     for script, key_id, name in STAGE_KEYS:
         customitem.add_custom_item(iso, key_id, name, donor, article="the")
-        desc = STAGE_KEY_DESC_TEXT.get(script, f"{friendly.get(script, script)} Key")
-        customitem.set_item_description(iso, key_id, desc,
-                                         donor_id=STAGE_KEY_DESC_DONOR.get(script))
+        texts[key_id] = [STAGE_KEY_DESC_TEXT.get(script, f"{friendly.get(script, script)} Key"), "", ""]
+    customitem.set_item_descriptions(iso, texts,
+                                     skip_donors=(customitem.AP_SLOT, customitem.AP_DESC_DONOR))
 
 
 def place_stage_keys(iso, chain, rng, chests_per_dungeon=STAGE_KEY_CHESTS_PER_DUNGEON,
@@ -2935,6 +3815,7 @@ def cmd_patch(iso, json_path, max_artifacts=4):
         apply_bosses(iso, boss_plan)
     for problem in check_stone_access(iso, holy):
         print(f"WARNING: {problem}")
+    apply_other_gender(iso)
 
 
 def _boss_plan_from_spec(spec):
@@ -3083,12 +3964,12 @@ def apply_bosses(iso, boss_plan, spoiler=None):
 # Version of the Archipelago world (worlds/ffcc VERSION) this randomizer is made
 # for. Seeds record the version that generated them. The AP patch warns when
 # they differ, since options and item placement rules change between versions.
-AP_WORLD_VERSION = (0, 2, 0)
+AP_WORLD_VERSION = (0, 3, 0)
 
 
 def load_ffcc(path):
-    """Read a seed's .ffcc placement data, from the .ffcc file itself or from
-    the .zip it comes in. Raises ValueError if it can't be read."""
+    """Read a seed's placement data, from its .apffcc file (.ffcc before
+    apworld 0.3.0) or from the .zip it comes in. Raises ValueError if it can't be read."""
     import json, zipfile as _zipfile
     try:
         with _zipfile.ZipFile(path) as zf:
@@ -3126,9 +4007,9 @@ def ap_world_version_problem(placement_json):
 
 
 def cmd_hybrid_patch(iso, ref_iso, ffcc_file):
-    """Hybrid AP patch: own-player chests get the real item, others get AP Item.
+    """Hybrid AP patch: own-player chests get the real item, the rest open empty.
 
-    Reads the .ffcc placement file produced by Archipelago generation to decide
+    Reads the .apffcc file produced by Archipelago generation to decide
     which item belongs in each chest.  For this player's own items the game
     engine gives the item naturally on chest open, so the AP client skips the
     memory-write for those locations (preventing a double-give).
@@ -3192,7 +4073,7 @@ def cmd_hybrid_patch(iso, ref_iso, ffcc_file):
 
     other_count = len(raw_locs) - real_count
     print(f"  {real_count} own real items → real model in chest"
-          f",  {other_count} other/trap → AP Item placeholder.")
+          f",  {other_count} other/trap → empty AP chest.")
 
     # ── 2. Install AP Item definition ─────────────────────────────────────────
     try:
@@ -3223,6 +4104,22 @@ def cmd_hybrid_patch(iso, ref_iso, ffcc_file):
         ("best_bonus_tier",      patch_best_bonus_tier,            "Always best bonus tier"),
         ("keep_picked_up_artifacts", patch_keep_artifacts,         "Picked-up artifacts are kept"),
     ]
+    # AP option Show Enemy Health: 1 text, 2 bar, 3 both
+    health = {1: "text", 2: "bar", 3: "both"}.get(int(settings.get("show_enemy_health") or 0))
+    if health:
+        patch_show_enemy_health(iso, health)
+        print(f"Enemy health shown: {health}")
+    # the HUD, which the client shows item messages with (it shows nothing by itself)
+    patch_hud(iso)
+    # AP option Grooming Tools: the dyes, soap and scissors need their items
+    if placement_json.get("grooming_tools"):
+        patch_grooming_tools(iso)
+        print("Grooming tools: locked until found")
+    # AP option Show Play Timer: 1 play time, 2 speedrun (automatic), 3 speedrun (manual)
+    timer = {1: "play_time", 2: "speedrun", 3: "manual"}.get(int(settings.get("show_play_timer") or 0))
+    if timer:
+        patch_play_timer(iso, timer)
+        print(f"Play timer shown: {timer}")
     if settings.get("randomize_miasma_streams") or settings.get("shuffle_loading_zones"):
         settings = dict(settings, goblin_wall_year_one=True)   # the logic assumes it
     for key, patch, label in tweaks:
@@ -3273,14 +4170,31 @@ def cmd_hybrid_patch(iso, ref_iso, ffcc_file):
         create_stage_key_items(iso)
         patch_stage_key_locks(iso, apply=True, sites=stage_lock_sites_for(zone_plan))
         print("Stage keys: 13 dungeons now need their key (keys come from the multiworld).")
+    if settings.get("extra_spell_rings"):
+        import customitem
+        customitem.create_spell_rings(iso)      # after the stage keys (shared description bytes)
+        print("Extra spell rings: added Gravity, Holy, Slow, Stop and Haste Rings.")
+    # AP options Starting Stats and Starting Hearts (left alone when they're off)
+    if placement_json.get("tribe_stats") or placement_json.get("starting_hearts"):
+        import tribestats
+        tribestats.apply(iso, placement_json.get("tribe_stats"), placement_json.get("starting_hearts"))
+        for tribe, (hearts, strength, magic, defense) in tribestats.status(iso).items():
+            print(f"Starting stats: {tribe} has {hearts} hearts, Strength {strength}, Magic {magic}, "
+                  f"Defense {defense}")
 
     # AP option Monster Hunt Checks: enemies are the checks, so every chest is
     # emptied and hidden (step 4) and none is gold.
     hunt_checks = bool(settings.get("monster_hunt_checks"))
     # AP option Chest Color Matches Contents (off for seeds made before it existed)
     gold_chests = bool(settings.get("chest_color_matches_contents")) and not hunt_checks
-    if gold_chests and chestcolors.install(iso):
-        print("Added the gold chest texture (important items get gold chests).")
+    # Items that don't come out of the chest (other players' items, traps,
+    # gil, ...) leave it empty, and the chest shows the Archipelago logo.
+    # The AP Item's model isn't preloaded with any stage, so dropping it
+    # stalled the game while it loaded from the disc.
+    ap_chests = not hunt_checks
+    if ap_chests and chestcolors.install(iso):
+        print("Added the gold and AP chest textures.")
+    ap_looks = set()  # (dungeon, cycle, chest) whose chest is empty and shows the logo
 
     # ── 3. Apply per-cycle item assignments ────────────────────────────────────
     # A chest rolls its get_treasure slot from the dungeon's cycle. Vanilla
@@ -3332,29 +4246,37 @@ def cmd_hybrid_patch(iso, ref_iso, ffcc_file):
                             treasure.write_slot(buf, slots[slot], 0)   # not a location: empty
                         continue
                     item_id = 0 if hunt_checks else chest_items.get((friendly, cycle, c["chest"]), AP_ITEM_ID)
+                    if item_id == AP_ITEM_ID:
+                        item_id = 0
+                        ap_looks.add((friendly, cycle, c["chest"]))
                     treasure.write_slot(buf, slots[slot], item_id)
                     written += 1
             if len(buf) != size:
                 raise ValueError(f"{disc}: size changed, refusing to inject")
 
-            # Gold chests: set each chest's gold bits for the cycles where its
-            # item is important, then let initTreasureBox pick the gold
-            # texture from them (chestcolors.py). That edit makes the script
-            # a little longer, so it is written back with put_file.
-            golden = 0
-            for off, _, _, flag in (chestflags._chest_case_pushes(tmp) if gold_chests else []):
+            # Chest looks: set each chest's gold bits for the cycles where its
+            # item is important and its AP bits for the cycles where it is
+            # empty, then let initTreasureBox pick the texture from them
+            # (chestcolors.py). That edit makes the script a little longer,
+            # so it is written back with put_file.
+            golden = logos = 0
+            for off, _, _, flag in (chestflags._chest_case_pushes(tmp) if ap_chests else []):
                 c = next((c for c in chests if c["area"] == area and flag in c["flags"]), None)
                 if c is None:
                     continue
-                cycles = [cy for cy in c["cycles"] if (friendly, cy, c["chest"]) in gold]
-                a = struct.unpack(">i", buf[off + 1:off + 5])[0] & ~chestcolors.ALL_GOLD_BITS
-                buf[off + 1:off + 5] = struct.pack(">i", a | chestcolors.gold_bits(cycles))
-                golden += bool(cycles)
+                key = lambda cy: (friendly, cy, c["chest"])
+                gold_cycles = [cy for cy in c["cycles"] if gold_chests and key(cy) in gold]
+                ap_cycles = [cy for cy in c["cycles"] if key(cy) in ap_looks]
+                a = struct.unpack(">i", buf[off + 1:off + 5])[0] & ~chestcolors.ALL_BITS
+                a |= chestcolors.gold_bits(gold_cycles) | chestcolors.ap_bits(ap_cycles)
+                buf[off + 1:off + 5] = struct.pack(">i", a)
+                golden += bool(gold_cycles)
+                logos += bool(ap_cycles)
             open(tmp, "wb").write(buf)
-            content = (chestcolors.patch_script(tmp) if gold_chests else None) or bytes(buf)
+            content = (chestcolors.patch_script(tmp) if ap_chests else None) or bytes(buf)
             gciso.put_file(iso, disc, content)
-            if golden:
-                print(f"  {script:8s} a{area}: {golden} gold chest(s)")
+            if golden or logos:
+                print(f"  {script:8s} a{area}: {golden} gold chest(s), {logos} AP chest(s)")
             total_slots += written
             if written:
                 print(f"  {script:8s} a{area}: {written} chest slot(s) patched (hybrid)")
@@ -3383,6 +4305,16 @@ def cmd_hybrid_patch(iso, ref_iso, ffcc_file):
         n = set_hotspot_elements(iso, placement_json["hotspot_elements"],
                                  menus=placement_json.get("menu_elements"))
         print(f"Hotspot elements: {n} hotspot(s) now change element by year")
+
+    # ── 7. Lynari Desert North Exit (Dungeon Shortcuts option). After everything
+    # else: it grows desert_0's script, which the steps above edit by offset.
+    if settings.get("lynari_desert_north_exit"):
+        import lynarinorth
+        lynarinorth.patch(iso)
+        print("Lynari Desert North Exit: quicksand pit added at the north end of the first area")
+
+    # ── 8. The Other gender choice and its neutral wording (every ISO gets it)
+    apply_other_gender(iso)
 
     print(f"Hybrid AP patch complete: {total_slots} slot(s) written into {os.path.basename(iso)}.")
 
@@ -3531,6 +4463,7 @@ def cmd_run(iso, args, apply):
                               icons=not getattr(args, "no_world_zone_icons", False))
         for problem in check_stone_access(iso, holy):
             print(f"WARNING: {problem}")
+        apply_other_gender(iso)
     else:
         print("Run the same command with `run` (and the same --seed) to apply.")
 
@@ -3579,7 +4512,7 @@ def main():
                    help="EXPERIMENTAL: shuffle dungeon bosses between arenas (with `run`; "
                         "Goblin King and Lich stay home). Needs a copy whose bosses "
                         "haven't been moved yet")
-    p.add_argument("--ffcc", help=".ffcc placement file (for `ap-hybrid`)")
+    p.add_argument("--ffcc", help="the seed's .apffcc (or older .ffcc) file (for `ap-hybrid`)")
     args = p.parse_args()
 
     if not os.path.isfile(args.iso):
@@ -3604,7 +4537,7 @@ def main():
         if not args.ref or not os.path.isfile(args.ref):
             sys.exit("ap-hybrid needs --ref <vanilla.iso>")
         if not args.ffcc or not os.path.isfile(args.ffcc):
-            sys.exit("ap-hybrid needs --ffcc <seed.ffcc> (the Archipelago output file)")
+            sys.exit("ap-hybrid needs --ffcc <seed.apffcc> (the Archipelago output file)")
         cmd_hybrid_patch(args.iso, args.ref, args.ffcc)
     elif args.command == "export-bonus":
         if not args.json:

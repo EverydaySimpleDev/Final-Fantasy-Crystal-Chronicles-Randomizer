@@ -411,10 +411,6 @@ def export(iso, out_path):
             next_code += 1
     width = max(len(repr(name)) for name, *_ in rows) + 1
     lines = ['"""',
-             "Written by chestflags.py (Final-Fantasy-Crystal-Chronicles-Randomizer) from the",
-             "game files - regenerate instead of editing by hand:",
-             "    py chestflags.py export <clean.iso> <this file>",
-             "",
              "Every AP location, one per line:",
              "    name: (code, dungeon, cycle, chest, flags)",
              "",

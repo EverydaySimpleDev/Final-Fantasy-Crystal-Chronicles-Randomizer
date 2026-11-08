@@ -4,7 +4,7 @@ Worked example: entering Goblin Wall from the world map
 requires owning a specific artifact ("Gob Key", item `0xE9`). No key, no
 entry - the world map just doesn't let the transition happen. This document
 is the full recipe: every file touched, every byte changed, and why each
-step was necessary. It covers **one** stage (Goblin Wall); the randomizer's
+step was necessary. It covers **one** stage (Goblin Wall). The randomizer's
 `_stage_key_locks` option applies the same technique to the other dungeons
 (see "Generalizing to all stages" at the end).
 
@@ -50,7 +50,7 @@ come from - not every chest in one dungeon like this test did.
 
 **Note on how FFCC's artifact system actually works**: artifacts aren't
 picked up instantly like a normal item. Finding one in a dungeon adds it to
-a temporary "Treasures" list; only when you clear the dungeon and beat its
+a temporary "Treasures" list. Only when you clear the dungeon and beat its
 boss do you choose ONE candidate from that list to keep permanently. This
 is normal, vanilla behavior for all 73 real artifacts, and the new key
 behaves the same way.
@@ -113,8 +113,8 @@ labeled) - this isn't cosmetic metadata.
 The world map's `mainBasha` function has one call, specific to Goblin Wall,
 that used to go straight to "confirm and travel there." That one call was
 redirected to the new gate-check function instead - a one-byte change
-(only the target function's index number changes; everything about how the
-call is made stays the same):
+(only the target function's index number changes, and everything about how
+the call is made stays the same):
 
 - File offset `0x471D2` in `world.cft`
 - Before: `0A FF FF 02 52` (call function #594, `MJ_SWING_ATTRIB_2` directly)
@@ -170,9 +170,9 @@ stop, not Mount Kilanda - don't gate it as Kilanda.
 
 ### Element menus stay open
 
-Stops with an element menu (`MJ_SWING_ATTRIB_1` for one element: the Mine,
-Mushroom Forest, Selepation Cave, Lynari Desert; `MJ_SWING_ATTRIB_2` for two:
-River Belle Path, Goblin Wall, Tida, Moschet Manor) let the player change the
+Stops with an element menu (`MJ_SWING_ATTRIB_1` for one element at the Mine,
+Mushroom Forest, Selepation Cave and Lynari Desert, and `MJ_SWING_ATTRIB_2` for
+two at River Belle Path, Goblin Wall, Tida and Moschet Manor) let the player change the
 chalice's element or enter. In the game the menu only shows once the stage
 has been cleared (`if (evtFlag[this.m40])`, the stage's Myrrh flag 200+n),
 otherwise A goes straight in. If the key check guarded the whole stop, an
@@ -197,8 +197,8 @@ The menus pick their elements from the stop (`G61`), so with shuffled loading
 zones the elements stay with the world-map stop, not the dungeon.
 
 So at a stop whose dungeon isn't cleared and whose key you don't have, the
-menu still shows and the element can be changed, but entering is refused;
-with the key, entering works.
+menu still shows and the element can be changed, but entering is refused.
+With the key, entering works.
 
 ### Boats to Mount Kilanda
 

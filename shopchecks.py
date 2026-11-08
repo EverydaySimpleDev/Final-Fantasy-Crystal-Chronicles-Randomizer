@@ -189,9 +189,6 @@ def export(iso, out_path):
     shop_lines = [f"    {key!r}: ({name!r}, {town!r}, {script!r}, {case}, {len(stock[key])}),"
                   for key, (name, town, script, case) in SHOPS.items()]
     header = '''"""
-Written by shopchecks.py (Final-Fantasy-Crystal-Chronicles-Randomizer) from
-the town scripts - make it again instead of editing it.
-
 Shop slots that are checks with "Shop Checks":
     LOCATIONS = {name: (code, shop key, slot, vanilla item id)}
     SHOPS = {shop key: (display name, town, town script, stock case, slots)}

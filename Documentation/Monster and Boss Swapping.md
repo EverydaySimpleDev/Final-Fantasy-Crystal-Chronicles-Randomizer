@@ -2,7 +2,7 @@
 
 How to make any monster, including a boss, work properly in a stage it wasn't
 designed for. This covers how the game loads a monster's animations, sounds and
-hitboxes; the `cftpatch.py` tool that moves them between stages; and the extra
+hitboxes, the `cftpatch.py` tool that moves them between stages, and the extra
 arena-specific pieces some bosses need. It builds on
 [Hotspot and Monster Editing.md](Hotspot%20and%20Monster%20Editing.md), which
 covers the basic spawn-record edit.
@@ -19,9 +19,9 @@ Everything here was checked against the NTSC-US disc, all 132
 | A field monster moved to another stage (Cactuar into River Belle Path) | Works: animations, attacks, hitboxes and its own sounds all work |
 | A boss moved to another arena (Orc King into River Belle Path's boss room) | Works: fights normally and can be beaten |
 | A boss with summons (Lich and its skeletons into River Belle Path's boss room) | Works: Lich, skeletons, summons and magic all work |
-| Lich's orb shield and teleport, ported to another arena | Built; see [Bosses with special mechanics](#bosses-with-special-mechanics-lich) |
+| Lich's orb shield and teleport, ported to another arena | Built, see [Bosses with special mechanics](#bosses-with-special-mechanics-lich) |
 | Lich's orbs protecting a different boss | Works: the boss is protected until the orbs break, with no shield visual |
-| Randomizer boss shuffle (GUI checkbox / JSON) | EXPERIMENTAL: all 156 boss-into-arena combinations build and pass structural checks; not every combination has been played |
+| Randomizer boss shuffle (GUI checkbox / JSON) | EXPERIMENTAL: all 156 boss-into-arena combinations build and pass structural checks, but not every combination has been played |
 
 If you only change a monster's ID in a `SPAWN` record, a monster the stage
 doesn't normally contain becomes a **"zombie"**: its model appears and its AI
@@ -88,7 +88,7 @@ scripts compiles to the same shape:
 A `ParamSet` case body contains, in order:
 
 - `loadAnim(clip, slot, flags, -1, -1)` for each animation. `clip` is a
-  string-table index (opcode `05`); the engine loads
+  string-table index (opcode `05`). The engine loads
   `dvd/char/mon/mNNN/<clip>.cha` from the model loaded above.
 - `setAnimSlot(slot, slot)` for each slot, plus a few aliases.
 - `send_int(…, 10+k, …, <attack id>, …, 100, k)`: registers the monster's
@@ -293,7 +293,7 @@ Diffing boss arenas against each other shows:
     swapped boss runs the old boss's entrance. This is cosmetic.
   - Arena objects and helper classes, such as River Belle Path's `BossQuad`
     boundary walls, or Lich's orbs.
-  - `mainEventDirector` (cutscenes). It isn't keyed by monster ID; some
+  - `mainEventDirector` (cutscenes). It isn't keyed by monster ID. Some
     numbers in it happen to equal boss IDs but are diary and story-flag
     values.
 
@@ -312,7 +312,7 @@ is four absolute world positions in `Start.dol` at **file offset `0x20E678`**
 `CGMonObj::teleport()` picks one at random (never the same twice) and moves
 Lich there. Lich's own spawn point, `(0, 25.37, -137.12)`, is the first of
 them. In any other arena these points are off-stage, so a moved Lich
-teleports out of the arena. Rewrite the table for Lich's new arena; only one
+teleports out of the arena. Rewrite the table for Lich's new arena. Only one
 Lich exists per game, so one table is enough. Goblin King has the same kind
 of table (`gGoblinKingTeleportPoints`) just before it, at `0x20E648`.
 
@@ -325,7 +325,7 @@ Lich's arena this is done by the `JochuSE` class: it starts the state at 3
 arenas, `JochuSE` is just an ambient-sound class and never sets the state.
 
 **The orbs are an arena class.** Lich's arena defines a `SwitchSphere` class
-(model `f060`; methods `begin/init/main/onHitParticle/onDamage`; helpers
+(model `f060`, methods `begin/init/main/onHitParticle/onDamage`, helpers
 `resInit/resLoop/resFunc`). Two orbs are placed by `SPAWN_SWITCH_SPHERE` calls
 at the end of the arena's `SPAWN_MONSTER`, at `(-172.77, 0.34, -38.62)` and
 `(172.23, 0.34, -38.62)`. Other arenas only have an empty `SPAWN_SWITCH_SPHERE`
@@ -337,9 +337,9 @@ which aren't needed for the fight.
 **Porting it:** `cftpatch.import_lich_orbs(dst, donor, var_map, orb_positions, log)`
 copies all of this from Lich's arena (`city_2.cft`) into another arena:
 
-1. appends the eight `SwitchSphere` functions and the `SwitchSphere` class;
+1. appends the eight `SwitchSphere` functions and the `SwitchSphere` class
 2. replaces `SPAWN_SWITCH_SPHERE`, `initJochuSE` and `mainJochuSE` with
-   Lich's versions, and gives `JochuSE` the extra member variable they use;
+   Lich's versions, and gives `JochuSE` the extra member variable they use.
 3. adds two `SPAWN_SWITCH_SPHERE` calls at the given positions to the end of
    the arena's `SPAWN_MONSTER`.
 
@@ -378,7 +378,7 @@ is cast by fusing a Stone of Life with a Fire, Blizzard or Thunder stone, and
 stones don't carry between dungeons. The randomizer therefore keeps the
 magicite sets vanilla in whichever dungeons host those two bosses (their home
 dungeons unless the boss shuffle moves them). See "Notes & known scope" in
-[RANDOMIZER.md](RANDOMIZER.md).
+the [README](../README.md).
 
 ### Boss shuffle in the randomizer (EXPERIMENTAL)
 
@@ -386,8 +386,8 @@ dungeons unless the boss shuffle moves them). See "Notes & known scope" in
 their arenas (Mount Vellenge's multi-part final boss isn't included). It's
 available as:
 
-- the **"Randomize bosses"** checkbox in the GUI;
-- `py randomizer.py run <iso> --seed N --randomize-bosses` on the command line;
+- the **"Randomize bosses"** checkbox in the GUI
+- `py randomizer.py run <iso> --seed N --randomize-bosses` on the command line
 - the JSON keys `_randomize_bosses` and `_bosses` (see below).
 
 For each arena that gets a new boss:
@@ -458,15 +458,15 @@ writing or copying code:
 - **Operators:** `2B` = float negate (a negative literal is written as `PUSHF
   |x|` then `2B`), `2C` = equal, `2D` = not equal, `1F` = bitwise AND.
 - **Variables** (`00` GET / `01` address-of): argument = `index << 8 | flags`.
-  Flags `0x19` = the object's own member (`this[index]`); `0x09` = file global;
+  Flags `0x19` = the object's own member (`this[index]`). `0x09` = file global.
   `0x01` = local. Bit `0x02` makes it an indexed (array) access. Negative
-  indices are engine "system values"; −200 to −499 map to
+  indices are engine "system values". −200 to −499 map to
   `CGameWork::m_eventWork[value + 0x1C7]`.
 - **Chunk counts:** the `FUNC` and `CLAS` chunks store their entry counts in
   the first header field, and a class's member table (`VAL`) stores its
   member count the same way. Update these when adding entries.
 - **Class method table:** each class's `VTBL` is 128 function indices (−1 =
-  unused); slot 0 = `begin`, 2 = `init`, 3 = `main`, 11 = `onHitParticle`,
+  unused). Slot 0 = `begin`, 2 = `init`, 3 = `main`, 11 = `onHitParticle`,
   71 = `onDamage`.
 
 ---
@@ -475,7 +475,7 @@ writing or copying code:
 
 - Swapping many *different* monster types into one stage has crashed the game
   in the past. That may be a memory budget (`setCharaAlloc`) rather than
-  anything in these tables; it hasn't been investigated.
+  anything in these tables. It hasn't been investigated.
 - A swapped boss uses the old boss's entrance sequence from `mainMonster_Logic`.
   Porting the new boss's own entrance hasn't been done.
 - Some bosses may have more arena-specific mechanics like Lich's, for example

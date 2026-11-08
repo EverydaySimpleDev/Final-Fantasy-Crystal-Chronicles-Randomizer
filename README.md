@@ -71,22 +71,33 @@ py randomizer.py <command> "<iso>" [json] [options]
 | `patch`         | Apply a chest JSON to the ISO                                                                           |
 | `list-shops`    | List the shops in the ISO (Tipa, Alfitaria, …)                                                          |
 | `preview-shops` | Dry run — show how many shop slots _would_ change                                                       |
-| `shops`         | Randomize shop inventories **in place** (all, or `--shop` ones; add `--prices` to shuffle prices too)   |
+| `shops`         | Randomize shop inventories **in place** (all, or `--shop` ones, add `--prices` to shuffle prices too)   |
 | `prices`        | Shuffle item prices only (the gil/price tags shops use)                                                 |
+| `ap-hybrid`     | Build an Archipelago seed's ISO **in place** from its `.apffcc` file (needs `--ffcc` and `--ref`)        |
+| `ap-patch`      | Older Archipelago prep: put the AP Item in every chest, and the client hands out the real items (needs `--ref`) |
+| `export-bonus`  | Write the AP world's `bonus_table.py` (bonus thresholds and pools) from an ISO                           |
 
 ### Options
 
 | Option                  | Values                                                              | Meaning                                                                                                                                                  |
 | ----------------------- | ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `--seed N`              | any integer                                                         | Reproducible result (same seed → same layout). Omit for random                                                                                           |
-| `--mode`                | `cross` (default) / `category`                                      | `cross` = any droppable item anywhere; `category` = keep each chest's original category                                                                  |
-| `--rolls`               | `cycle` (default) / `slot` / `chest`                                | `cycle` = one item per chest per cycle; `slot` = every slot independent (most variety, multiple items per cycle); `chest` = one item for the whole chest |
+| `--mode`                | `cross` (default) / `category`                                      | `cross` = any droppable item anywhere, `category` = keep each chest's original category                                                                  |
+| `--rolls`               | `cycle` (default) / `slot` / `chest`                                | `cycle` = one item per chest per cycle, `slot` = every slot independent (most variety, multiple items per cycle), `chest` = one item for the whole chest |
 | `--pool`                | `all` (default) / `artifact` / `magicite` / `consumable` / `recipe` | Restrict which items can appear                                                                                                                          |
-| `--max-artifacts N`     | default `4`                                                         | Cap artifacts per dungeon **per cycle** (the player's carry limit); excess chests get a non-artifact item                                                |
+| `--max-artifacts N`     | default `4`                                                         | Cap artifacts per dungeon **per cycle** (the player's carry limit), excess chests get a non-artifact item                                                |
 | `--dungeon NAME`        | e.g. `river`, `gob`                                                 | Only this dungeon (repeatable). Names come from `list`                                                                                                   |
 | `--fill-empty`          | flag                                                                | Also fill placeholder/empty slots                                                                                                                        |
-| `--chests-only`         | flag                                                                | Randomize only chests, **not enemy drops** (they share the loot pool). Isolates Game8-identified chests; needs `--ref`; undocumented dungeons skipped    |
+| `--chests-only`         | flag                                                                | Randomize only chests, **not enemy drops** (they share the loot pool). Isolates Game8-identified chests, needs `--ref`, undocumented dungeons skipped    |
 | `--ref "<vanilla.iso>"` | path                                                                | Label spoiler/export chests by their Game8 chest number                                                                                                  |
+| `--no-stone-protection` | flag                                                                | Don't keep the magicite needed for Holy (Lich / Zombie Dragon) and Tida's Fire vanilla                                                                  |
+| `--randomize-world-zones` | flag                                                              | **Experimental.** Shuffle which dungeon each world-map spot leads to (12 dungeons, Mount Kilanda and Mount Vellenge stay)                               |
+| `--no-progression-logic` | flag                                                               | With `--randomize-world-zones`, shuffle without checking that every year stays beatable                                                                 |
+| `--no-world-zone-icons` | flag                                                                | With `--randomize-world-zones`, keep each world-map stop's original building instead of showing its new dungeon                                         |
+| `--randomize-bosses`    | flag                                                                | **Experimental.** Shuffle dungeon bosses between arenas (Goblin King and Lich stay home). Needs a copy whose bosses haven't been moved yet                |
+| `--shop NAME`           | e.g. `village_0`                                                    | With `shops` / `preview-shops`: only this shop (repeatable). Names come from `list-shops`                                                               |
+| `--prices`              | flag                                                                | With `shops`: shuffle prices as well                                                                                                                    |
+| `--ffcc "<seed.apffcc>"` | path                                                               | The Archipelago seed file, for `ap-hybrid` (an older `.ffcc` works too)                                                                                  |
 
 ### Examples
 
@@ -111,7 +122,7 @@ py randomizer.py spoiler "Hacked Rom - randomized.iso" --ref "Hacked Rom.iso"
 
 ### Shop randomization
 
-Shops keep their inventory in the town scripts; each slot's price is derived from
+Shops keep their inventory in the town scripts. Each slot's price is derived from
 the item, so randomizing a shop just swaps the item (the price follows). Stock is
 drawn only from items shops already sell (materials, recipes, food, magicite,
 Phoenix Down), so every price stays valid. Equipment/artifacts are never added.
@@ -149,9 +160,15 @@ export to see the current state, edit, patch to apply):
 | Skip the opening intro cutscene | `_skip_intro_cutscene` (bool) | Jumps straight past the opening cutscene on a new game. |
 | Show Goblin Wall on the map from Year 1 | `_goblin_wall_always_visible` (bool) | Reveals Goblin Wall's road/icon on the world map starting Year 1, instead of waiting for the Year 1→2 transition. Doesn't change the Year value or anything else — patches the two `currentYear >= 2` checks in `world.cft` that gate the reveal. |
 | Randomize Miasma Stream elements | `_randomize_miasma_elements` (bool) | Shuffles which element (Fire/Water/Wind/Earth) each of the 4 rotating Miasma Streams requires each year, seeded like the rest of the randomizer. **Requires `_goblin_wall_always_visible` to also be set** — that's what guarantees Fire and Earth (Goblin Wall's own hotspots) are obtainable from Year 1, alongside River Belle Path's Water/Wind, so every element is always reachable regardless of the shuffle. Patch is skipped (with a log warning) if the other option isn't also enabled. **Experimental**. |
-| Bonus Pools | `_randomize_bonus_pools` (bool) + `_bonus_pools` (per-dungeon override) | Randomizes the end-of-dungeon score-reward pool (separate from chests/enemy drops — see Notes below). `_bonus_pools` lets you hand-set exact items per dungeon/entry instead of (or on top of) randomizing; export a fresh JSON to see the current pool for every dungeon. |
+| Bonus Pools | `_randomize_bonus_pools` (bool) + `_bonus_pools` (per-dungeon override) | Randomizes the end-of-dungeon score-reward pool (separate from chests/enemy drops — see Notes below). `_bonus_pools` lets you hand-set exact items per dungeon/entry instead of (or on top of) randomizing, export a fresh JSON to see the current pool for every dungeon. |
 | Lock stages behind key artifacts | `_stage_key_locks` (bool) | Creates 14 new key artifacts (one per dungeon) and hides each one in a handful of chests (never enemy drops) across a randomized, always-solvable chain — River Belle Path always stays open, and no dungeon's key is ever placed inside that same dungeon. **Experimental**. All 13 gated dungeons check for their key on entry. |
 | Enable developer debug menu | `_enable_debug_menu` (bool) | Unlocks the game's hidden "Development Mode" debug menu (9 Start.dol patches, derived from published Action Replay codes). **Experimental** — see below for how to use it. |
+| Randomize world-map loading zones | `_randomize_world_zones` (bool) + `_world_zones` (spot → dungeon) | Shuffles which dungeon each world-map spot leads to. `_world_zones` places them by hand: each spot is named by its vanilla dungeon, and the names to choose from are in `_world_zone_choices`. A spot naming its own dungeon means "no preference". Also turns on the Goblin Wall toggle. **Experimental**. |
+| Show each spot's new dungeon building | `_world_zone_icons` (bool) | With shuffled loading zones, the world-map building at each spot changes to the dungeon it now leads to. On by default. |
+| Use progression logic | `_progression_logic` (bool) | Picks the zone layout and the stage-key order so every year has enough reachable dungeons. On in the GUI. An imported JSON is applied as written unless it sets this to `true`, and even then only its random parts follow the logic. |
+| Randomize bosses | `_randomize_bosses` (bool) + `_bosses` (dungeon → boss) | Shuffles the 13 dungeon bosses between arenas, each with its helpers and summons. `_bosses` places them by hand (names in `_boss_choices`). Goblin King and Lich stay home in a random shuffle. **Experimental**. |
+| Protect required magicite | `_protect_required_stones` (bool) | Keeps the magicite needed for Holy (Lich / Zombie Dragon) and Tida's Fire vanilla. On by default. It never changes the JSON's own chest data. |
+| Status traps show their effect | `_trap_visuals` (bool) | Start.dol hook so Archipelago status traps (frozen, burned, ...) show the real in-game effect. Applied automatically for Archipelago seeds. |
 
 These are all independent of chest/item randomization and of each other —
 mix and match freely.
@@ -187,6 +204,30 @@ and `A`/`B` toggles the highlighted entry. It's a leftover QA test-flag menu
 **not** known to include a working free-roam camera, and some entries may
 do nothing or destabilize the game. Treat it as a fun bonus for explorers, not
 a reliable tool.
+
+### Other gender
+
+Every ISO the tools build (Randomize, Patch from JSON and the AP patch) adds
+an **Other** choice to the character-creation gender screen. An Other
+character uses the male models and hairstyles, and the game's gendered text
+uses neutral wording for them ("they", "their", "child", "person"), including
+the family's farewell. Male and female characters read exactly as before.
+`othergender.py` has the details.
+
+### Archipelago
+
+For a multiworld seed, the player's options live in the Archipelago world, not
+here. The randomizer only builds the ISO from the seed's `.apffcc` file: use the
+GUI's **AP Patch** tab, or
+
+```bash
+py randomizer.py ap-hybrid "copy.iso" --ref "clean.iso" --ffcc "AP_<seed>_P1_<name>.apffcc"
+```
+
+The full player guide (patching, Dolphin, the client, the tracker) is the AP
+world's setup guide, `worlds/ffcc/docs/setup_en.md` in the Archipelago repo.
+The randomizer's version must match the apworld's (`AP_WORLD_VERSION` in
+`randomizer.py`).
 
 ### JSON workflow (precise hand-editing)
 
@@ -240,16 +281,16 @@ has one or more area files `_0`, `_1`, …):
 }
 ```
 
-- **Area index** (`"0"`, `"1"`, …) selects the dungeon's area file; **set index**
+- **Area index** (`"0"`, `"1"`, …) selects the dungeon's area file. **Set index**
   is the stable key within an area. `_name`, `_label`, `_chest`, and any
   `_`-prefixed key are human-readable metadata, ignored on import.
 - **`_label`** mirrors the chest editor: each Game8 chest is numbered **once per
-  dungeon** (`"Chest N"`); every other set is classified (validated against the
+  dungeon** (`"Chest N"`). Every other set is classified (validated against the
   GameCube set-list sheet) as **`"Monster N"`** (enemy drop), **`"Magicite N"`**
   (stone/element spawn), or **`"Gathering N"`** (food/seeds), numbered across
   areas. `_chest` is the numeric chest id, or `null` otherwise. (Labels need
-  `--ref`; without it every set is just `"Set N"`.)
-- **Cycle** is `"1"`, `"2"`, or `"3"`; the value sets every real-item slot in
+  `--ref`. Without it every set is just `"Set N"`.)
+- **Cycle** is `"1"`, `"2"`, or `"3"`. The value sets every real-item slot in
   that cycle.
 - **Item** can be a name (`"Phoenix Down"`), a hex id (`"0x0107"`), or the
   export's `"Name [0xID]"` label (the hex wins). A **list** is spread across the
@@ -275,7 +316,7 @@ py chesteditor.py
 
 1. **Open ISO** (back it up first).
 2. Pick a dungeon, click **Load**.
-3. The table shows **one row per chest**; the three columns are what that chest
+3. The table shows **one row per chest**. The three columns are what that chest
    gives in **Cycle 1 / 2 / 3**. Green "Chest N" rows are matched to Game8's
    chest numbers (each chest numbered **once per dungeon**, across all its area
    files). Every other set is classified (validated against the GameCube
@@ -313,7 +354,7 @@ py customitem.py show "copy.iso" 0x162
   short name or a slot with a longer placeholder.
 - To have the **randomizer/editor** carry the new item, add `NAMES[<id>]` to
   `ffcc_items.py` and remove the id from `randomizer.EXCLUDE` (the tool prints the
-  exact lines). Limits: reusing an existing model/icon is easy; a brand-new model
+  exact lines). Limits: reusing an existing model/icon is easy. A brand-new model
   or a new behaviour type needs graphics/executable work.
 - For the full byte-exact recipe (what actually makes something an "artifact"
   vs. a plain item, the stat-effect family codes, and which item-model IDs
@@ -355,7 +396,7 @@ py gciso.py rebuild "copy.iso" dvd/char/wep/w001/w001_root.chm "w001_new.chm" "o
 `newmesh` rebuilds the mesh's vertices, UVs, normals **and faces** (writing a
 fresh GameCube display list via `dlst.py`), keeping the original material/texture.
 The model can be any size — `gciso rebuild` handles it. **Works for static models**
-(items, weapons, props); **rigged/animated characters** also store per-vertex bone
+(items, weapons, props). **Rigged/animated characters** also store per-vertex bone
 weights (SKIN) that `newmesh` doesn't rewrite yet, so don't change their topology.
 
 ### Replacing a file at a different size (ISO rebuild)
@@ -369,7 +410,7 @@ py gciso.py rebuild "copy.iso" dvd/char/wep/w001/w001_root.chm bigger.chm "out.i
 ```
 
 The output image can exceed the 1.46 GB disc size, so it's for **emulators
-(Dolphin)**, not burning. (Repeated rebuilds leave dead space; rebuild from a
+(Dolphin)**, not burning. (Repeated rebuilds leave dead space, so rebuild from a
 clean ISO to stay lean.)
 
 ## Supporting / low-level tools
@@ -404,6 +445,12 @@ py spawn_map.py export <cft_dir> <out.json>                  # same, dumped for 
 py spawn_map.py blender <file.cft> <out.py> [--axes x,-z,y]   # Blender script labelling every monster/chest (entry, drop, cycles)
 py stagemap.py render <iso> <script> <area> <out.png>        # top-down map of one dungeon area from its stage geometry, chests marked
 py stagemap.py tracker <iso> <out_dir>                       # every dungeon's map + chest pixel positions (stagemaps.json) for the tracker pack
+py chestflags.py export|positions <iso> <out>                # which "chest opened" bit belongs to which chest (the AP client's chest table)
+py lynarinorth.py <iso>                                      # Lynari Desert North Exit (Dungeon Shortcuts option)
+py tribestats.py show <iso>                                  # each tribe's starting hearts and stats (AP options Starting Stats / Starting Hearts)
+py othergender.py apply <iso>                                # the Other gender choice and its neutral wording (every ISO gets it)
+py ramdiff.py snap|diff <file.bin>                           # live RAM snapshot/diff of the save block from Dolphin (research)
+py otm.py <file.otm>                                         # byte-exact world-map container round-trip check
 ```
 
 ---
@@ -420,7 +467,7 @@ py -m PyInstaller FFCC-Randomizer.spec --noconfirm
 ```
 
 The result is `dist/FFCC-Randomizer.exe` — one self-contained file. Hand that
-to anyone; they just need their own legally-obtained ISO. `build/` and `dist/`
+to anyone. They just need their own legally-obtained ISO. `build/` and `dist/`
 are gitignored (regenerate them anytime by rerunning the command above).
 
 ---

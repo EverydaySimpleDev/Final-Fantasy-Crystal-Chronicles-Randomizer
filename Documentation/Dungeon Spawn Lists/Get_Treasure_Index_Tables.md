@@ -21,16 +21,16 @@ bytecode):
 - Each inner case pushes one item ID (`03 00 00 <id16>`) immediately
   followed by a fixed 10-byte signature (`0d0c0300000000010000`) — the
   same signature `lootcft.py`'s `find_item_slots()` already keys off.
-  Entries marked **(!)** below did *not* match this signature; the item
+  Entries marked **(!)** below did *not* match this signature. The item
   shown is a lower-confidence fallback guess (see Caveats). Entries marked
   **(empty)** matched a distinct "zero out locals" reset pattern instead
   of an item push - these slots genuinely carry no treasure (checked in the
   bytecode, not a heuristic guess). The two never overlap: `(!)` cases (e.g. `river_0` index 1/2) land on real unrelated
-  code elsewhere in the file; `(empty)` cases (first seen in Mount
+  code elsewhere in the file. `(empty)` cases (first seen in Mount
   Vellenge) contain no item-granting code at all for that slot.
 
-Extraction tool: `get_treasure_dispatch.py` (reusable per-stage; see
-`items_for_index()`).
+Extraction tools: `lootcft.py` (`find_sets()` reads a stage's get_treasure
+sets) and `spawn_map.py` (which chest or monster uses each index).
 
 ## Caveats
 
@@ -392,7 +392,7 @@ Extraction tool: `get_treasure_dispatch.py` (reusable per-stage; see
 | 1073741825 | *(tagged: tag 4, index 1 - see Get Treasure Index Table.md)* | | | | | | | |
 | 1073741850 | *(tagged: tag 4, index 26 - see Get Treasure Index Table.md)* | | | | | | | |
 
-> **Note:** `gigas_8.cft` (the boss room; 2 monsters, 0 chests) isn't
+> **Note:** `gigas_8.cft` (the boss room, 2 monsters, 0 chests) isn't
 > traced here.
 
 ## Moschet Manor - Area 1 (`gigas_0`)
@@ -530,7 +530,7 @@ Extraction tool: `get_treasure_dispatch.py` (reusable per-stage; see
 
 > Note: raw `A` values in the JSON for this stage all have an extra
 > `0x10000` (65536) bit set (e.g. `65546` = `65536 + 10`). Corrected
-> index shown below is `A - 65536`; the raw value is kept for reference.
+> index shown below is `A - 65536`. The raw value is kept for reference.
 
 | A (raw) | A (corrected) | Slot 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
 |---|---|---|---|---|---|---|---|---|---|
@@ -645,7 +645,7 @@ Extraction tool: `get_treasure_dispatch.py` (reusable per-stage; see
 | 27 | Copper Sword (!) | Iron Sword (!) | Thunderball | Thunderball | Bastard Sword (!) | Defender (!) | Thunderball | Thunderball |
 | 28 | Copper Sword (!) | Iron Sword (!) | Gigas Claw | Gigas Claw | Bastard Sword (!) | Defender (!) | Gigas Claw | Gigas Claw |
 
-> **Note:** `fort_1.cft` (the boss room; 6 monsters, 0 chests) isn't
+> **Note:** `fort_1.cft` (the boss room, 6 monsters, 0 chests) isn't
 > traced here.
 
 ## Daemon's Court (`fort_0`)
@@ -692,7 +692,7 @@ Extraction tool: `get_treasure_dispatch.py` (reusable per-stage; see
 | 268435456 | *(tagged: tag 1, index 0 - see Get Treasure Index Table.md)* | | | | | | | |
 | 536870912 | *(tagged: tag 2, index 0 - see Get Treasure Index Table.md)* | | | | | | | |
 
-> **Note:** `swamp_3.cft` (the boss room; 4 monsters, 0 chests) isn't
+> **Note:** `swamp_3.cft` (the boss room, 4 monsters, 0 chests) isn't
 > traced here.
 
 ## Conall Curach - Area 1 (`swamp_0`)
@@ -795,7 +795,7 @@ Extraction tool: `get_treasure_dispatch.py` (reusable per-stage; see
 | 29 | Copper Sword (!) | Iron Sword (!) | Orichalcum | Orichalcum | Diamond Ore | Diamond Ore | Diamond Ore | Orichalcum |
 | 30 | Bronze | Bronze | Iron | Iron | Alloy | Alloy | Mythril | Mythril |
 
-> **Note:** `city_2.cft` (the boss room; 4 monsters, 0 chests) isn't
+> **Note:** `city_2.cft` (the boss room, 4 monsters, 0 chests) isn't
 > traced here.
 
 ## Rebena Te Ra - Area 1 (`city_0`)
@@ -865,7 +865,7 @@ Extraction tool: `get_treasure_dispatch.py` (reusable per-stage; see
 | 29 | Copper Sword (!) | Holy Water | Holy Water | Heavenly Dust | Diamond Ore | Diamond Ore | Holy Water | Heavenly Dust |
 | 30 | Copper Sword (!) | Iron Sword (!) | Cerberus Fang | Cerberus Fang | Mythril | Mythril | Mythril | Cerberus Fang |
 
-> **Note:** `lava_2.cft` (the boss room; 7 monsters, 0 chests) isn't
+> **Note:** `lava_2.cft` (the boss room, 7 monsters, 0 chests) isn't
 > traced here. Community chest lists don't cover Mount Kilanda's chests, so
 > the table below is new data rather than a cross-check like the other
 > stages.
@@ -928,7 +928,7 @@ Extraction tool: `get_treasure_dispatch.py` (reusable per-stage; see
 | 27 | Copper Sword (!) | Iron Sword (!) | Ogre Fang | Ogre Fang | Bastard Sword (!) | Ogre Fang | Ogre Fang | Diamond Armor |
 | 28 | Copper Sword (!) | Iron Sword (!) | Coeurl Whisker | Coeurl Whisker | Bastard Sword (!) | Coeurl Whisker | Coeurl Whisker | Ancient Potion |
 
-> **Note:** `desert_2.cft` (the boss room; 14 monsters, 0 chests - more
+> **Note:** `desert_2.cft` (the boss room, 14 monsters, 0 chests - more
 > than the 3-8 typical of other boss rooms) isn't traced here. Community
 > chest lists don't cover Lynari Desert's chests, so the table below is new
 > data rather than a cross-check.

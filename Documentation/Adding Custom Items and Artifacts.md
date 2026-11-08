@@ -5,7 +5,7 @@ is just a regular item whose ID falls in the `0x9F`-`0xFE` range, which is
 the only thing that makes the game track it in the permanent
 `m_artifacts[96]` list and run its bonus through `CCaravanWork::CalcStatus()`
 (the effect system itself is broken down further below). Adding either one
-is the exact same 3-file edit; the only difference is which ID range you
+is the exact same 3-file edit. The only difference is which ID range you
 pick and which fields you set.
 
 ## The three edits, every time
@@ -151,7 +151,7 @@ these instead of the donor's own mesh, e.g.:
 ```
 py customitem.py add "copy.iso" 0xE8 "HP Charm" --like "Earth Pendant" --model 15
 ```
-Unused mesh ids (decimal, i.e. `f015` = model `15`; excludes the `f063`
+Unused mesh ids (decimal, i.e. `f015` = model `15`, excludes the `f063`
 stub):
 ```
 15, 26, 28, 30, 31, 33-37, 39, 41-48, 50-54, 56-62, 64, 66, 67, 69-77, 79-90,

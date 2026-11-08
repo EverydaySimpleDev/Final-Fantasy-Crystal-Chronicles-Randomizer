@@ -12,9 +12,20 @@ Record layouts (fields after monster_id/const, see cft.py's disasm()):
 `A` (chests) and `E` (monsters) are both get_treasure indices - swapping
 either between two records swaps what they drop. Each index has 4 item
 slots, matching PutDropItem's m_dropItemCodes[4]. `B` is
-the chest-opened flag + 1 (see chestflags.py). `C` and `D` are not fully
-understood (see Documentation/), so this module reports them as raw fields
-rather than guessing at a meaning.
+the chest-opened flag + 1 (see chestflags.py). `C` holds the cycle and
+player-count bits (see monsterhunt.py). The SPAWN script hands `field1` to
+the monster as CGMonObj::m_controlMask (which sysControl commands reach it)
+and `D` as m_groupTag (hitting one monster wakes its whole group).
+
+Not every record spawns in a real game:
+  demo    River Belle Path, Tida and Veo Lu Sluice open SPAWN_MONSTER with
+          `if (var 367) { SPAWN ...; } else { SPAWN ...; }`. Var 367 is
+          never written by the dungeon scripts and also skips the hot spots.
+          It is the title screen's demo play, so the first group never
+          appears when you play.
+  hidden  the area's map script hides a control group at the start
+          (sysControl(7, mask)) and never wakes it (sysControl(8, mask)) -
+          e.g. two of the Goblin King's four goblin groups.
 
 Each record also gets an `entry` number: its position in that area file's
 SPAWN_MONSTER, counted separately for monsters and chests. Area file + entry
@@ -277,10 +288,99 @@ def _records(path, ordinal):
     return recs
 
 
+DEMO_VAR = 0x16F09          # GET operand of var 367 (demo play)
+HIDE, WAKE = 7, 8           # sysControl numbers (CGMonObj::sysControl)
+
+
+def _func_codes(path):
+    """(FUNC names, {name: code bytes}) of a script file."""
+    root, _ = cft.parse(path)
+    func = next((s for s in root.subtags if s.type == b"FUNC"), None)
+    if func is None:
+        return [], {}
+    names = [k.name() for k in func.subtags]
+    codes = {}
+    for name, k in zip(names, func.subtags):
+        try:
+            codes[name] = cft._code_of(k)
+        except Exception:
+            pass
+    return names, codes
+
+
+def demo_entries(path):
+    """SPAWN entry numbers that only spawn in the title screen's demo play
+    (the `if (var 367)` half of SPAWN_MONSTER)."""
+    names, codes = _func_codes(path)
+    if "SPAWN_MONSTER" not in codes or "SPAWN" not in names:
+        return set()
+    spawn = names.index("SPAWN")
+    ops = list(cft.disasm(codes["SPAWN_MONSTER"]))
+    calls = [off for off, op, arg in ops if op == 0x0a and arg & 0xFFFF == spawn]
+    out = set()
+    for (off, op, arg), (_, op2, arg2) in zip(ops, ops[1:]):
+        if op == 0 and arg == DEMO_VAR and op2 == 8:
+            end = arg2 & 0xFFFFFF
+            out |= {entry for entry, call in enumerate(calls) if off < call < end}
+    return out
+
+
+def switch_groups(path):
+    """SPAWN_MONSTER's `switch (value) { case k: SPAWN ...; }` blocks, where
+    only one case spawns per visit (Daemon's Court's Gold Lizard pairs are
+    picked by a stage value, Rebena Te Ra's Mimics by rand(4)): [[entries of case 0],
+    [entries of case 1], ...] per switch."""
+    names, codes = _func_codes(path)
+    if "SPAWN_MONSTER" not in codes or "SPAWN" not in names:
+        return []
+    spawn = names.index("SPAWN")
+    ops = list(cft.disasm(codes["SPAWN_MONSTER"]))
+    calls = [off for off, op, arg in ops if op == 0x0a and arg & 0xFFFF == spawn]
+    switches = {}
+    for j in range(3, len(ops)):
+        off, op, arg = ops[j]
+        # case: DUP, PUSH k, ==, JZ next case - the switched value was the last GET
+        if op != 8 or ops[j - 1][1] != 0x2c or ops[j - 3][1] != 0x3a:
+            continue
+        entries = [entry for entry, call in enumerate(calls) if off < call < arg & 0xFFFFFF]
+        get = next((k for k in range(j - 3, -1, -1) if ops[k][1] == 0), None)
+        if entries and get is not None:
+            switches.setdefault(get, []).append(entries)
+    return [cases for cases in switches.values() if len(cases) > 1]
+
+
+def control_masks(path):
+    """(hidden, woken): the control groups the area's scripts hide and wake
+    with literal sysControl(7 / 8, mask) calls."""
+    names, codes = _func_codes(path)
+    if "sysControl" not in names:
+        return 0, 0
+    target = names.index("sysControl")
+    masks = {HIDE: 0, WAKE: 0}
+    for code in codes.values():
+        pushes = []
+        for off, op, arg in cft.disasm(code):
+            if op in (3, 5):
+                pushes.append(arg)
+            elif op == 0x3f:
+                pushes.append(0)
+            elif op == 0x0a:
+                if (arg & 0xFFFF == target and len(pushes) >= 2 and pushes[-2] in masks
+                        and isinstance(pushes[-1], int)):
+                    masks[pushes[-2]] |= pushes[-1]
+                pushes = []
+            else:
+                pushes.append(None)
+    return masks[HIDE], masks[WAKE]
+
+
 def monsters(path):
-    """[{addr, monster_id, name, field1, C, D, x, y, z, rotation, E}, ...]
+    """[{addr, monster_id, name, field1, C, D, x, y, z, rotation, E, demo, hidden}, ...]
     E is the get_treasure index for this monster's drop (swapping E between
-    two records swaps their drops)."""
+    two records swaps their drops). demo / hidden: never spawns in a real
+    game / spawns but never shows up (see the module docstring)."""
+    demo = demo_entries(path)
+    hidden, woken = control_masks(path)
     out = []
     for entry, (addr, r, w) in enumerate(_records(path, "SPAWN")):
         out.append({
@@ -294,6 +394,8 @@ def monsters(path):
             "x": r[4], "y": r[5], "z": r[6], "rotation": r[7],
             "world": {"x": w[4], "y": w[5], "z": w[6]},
             "E": r[10],
+            "demo": entry in demo,
+            "hidden": isinstance(r[1], int) and bool(r[1] & hidden) and not r[1] & woken,
         })
     return out
 
@@ -323,7 +425,7 @@ def build_dungeon(prefix, cft_dir):
         base = os.path.splitext(os.path.basename(f))[0]
         m, c = monsters(f), chests(f)
         if m or c:
-            out[base] = {"monsters": m, "chests": c}
+            out[base] = {"monsters": m, "chests": c, "switches": switch_groups(f)}
     return out
 
 
@@ -341,7 +443,8 @@ def _print_table(path):
         w = r["world"]
         print(f"  #{r['entry']:<3d} {r['addr']}  id=0x{r['monster_id']:02x} ({r['name']})  "
               f"field1={r['field1']} C={r['C']} D={r['D']} E={_e_text(r['E'])}  "
-              f"world=({w['x']}, {w['y']}, {w['z']}) rot={r['rotation']}")
+              f"world=({w['x']}, {w['y']}, {w['z']}) rot={r['rotation']}"
+              f"{'  [demo only]' if r['demo'] else ''}{'  [hidden]' if r['hidden'] else ''}")
     c = chests(path)
     print(f"-- {len(c)} chest(s) --")
     for r in c:
@@ -360,7 +463,7 @@ def _e_text(e):
 
 # Blender script template. Positions use the same convention as the team's
 # existing label script: Blender (X, Y, Z) = (world x, -world z, world y) / 10.
-_BLENDER_HEAD = """# Written by spawn_map.py - run in Blender's Scripting tab.
+_BLENDER_HEAD = """# Run in Blender's Scripting tab.
 # One collection per area file, a text label per monster (orange) and chest
 # (cyan). Label: entry number, name/ID, drop (get_treasure) index, cycles.
 import bpy

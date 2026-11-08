@@ -2,7 +2,7 @@
 
 Reference for two data tables: the per-item records in `param.cfd` (stats,
 spells, crafting recipes) and the single-player magic-fusion table in
-`Start.dol`. `items.py` reads and edits the item records; the fusion table
+`Start.dol`. `items.py` reads and edits the item records. The fusion table
 has no tool yet.
 
 ## Item records (`dvd/cft/param.cfd`)
@@ -98,7 +98,7 @@ records examined.
 | Offset | Field |
 |---|---|
 | `0x00` | Item type (`0045`) |
-| `0x02` | Model (shields only; `0000` otherwise) |
+| `0x02` | Model (shields only, `0000` otherwise) |
 | `0x04` | Equip type (`02` shield, `04` armor, `08` gauntlets/helmet/belt) |
 | `0x05` | Equipability |
 | `0x06` | Defense |
@@ -196,7 +196,7 @@ Each monster has a resistance entry per element and status, in this order
 (2 bytes each): Physical, Fire, Blizzard, Thunder, Slow, Stop,
 Gravity, Holy, Poison, Curse, Petrify. These live in the monster's record in
 `param.cfd` DATA block #1 (see
-[Monster and Boss Swapping.md](Monster%20and%20Boss%20Swapping.md)); the
+[Monster and Boss Swapping.md](Monster%20and%20Boss%20Swapping.md)). The
 decomp calls this block `ElementResistances` (halfword `0x6F` of a monster's
 data).
 
@@ -237,13 +237,13 @@ DDDD  unknown (0 or 1)
 | Life + Fire / Blizzard / Thunder | Slow |
 | Life + two different elements (any order) | Stop |
 
-So **Holy is an element stone followed by Life**; reversing the order gives
+So **Holy is an element stone followed by Life**. Reversing the order gives
 Slow. Stone IDs: Fire `0100`, Blizzard `0101`, Thunder `0102`, Cure `0105`,
 Clear `0106`, Life `0107`. Spell IDs: Fire `0207`, Fira `0208`, Blizzard
 `020B`, Blizzara `020C`, Thunder `020F`, Thundara `0210`, Slow `0214`, Holy
 `0221`, Gravity `0226`, Haste `022A`, Firaga `0230`, Blizzaga `0231`, Thundaga
 `0232`, Stop `023E`. (Item `0108` is also named "Holy", but it's a stone that
-never drops; the castable spell is `0221`.)
+never drops. The castable spell is `0221`.)
 
 ### Command list
 
@@ -268,7 +268,7 @@ Advance version of the list (used for multiplayer) is in
 | `10` / `11` | Attack / Support magicite | | |
 | `12` | Ore | | |
 
-In the GBA list, IDs up to `1C` are the same; scroll, wheat, flour, bannock
+In the GBA list, IDs up to `1C` are the same. Scroll, wheat, flour, bannock
 and generic item are `30`–`34` instead.
 
 The command-list offsets and IDs come from community notes. The fusion table

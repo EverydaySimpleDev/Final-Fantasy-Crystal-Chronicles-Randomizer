@@ -4,7 +4,7 @@ For each stage: every `get_treasure` index in use, what it actually
 grants (8 slots, same resolution as `Get_Treasure_Index_Tables.md`),
 and every chest/monster spawn that references it, individually
 addressed. Chest indices with a high flag bit (cycle-gating) are
-shown masked to their real index (`& 0xFFFF`); raw value kept in
+shown masked to their real index (`& 0xFFFF`). Raw value kept in
 parentheses where it differs. Monster `E` values above 1,000,000 are
 tagged values (`tag << 28 | index`) and are listed separately.
 

@@ -44,14 +44,14 @@ only the dungeon you enter changes.
     shuffled among the remaining nodes.
 
 The layout is written to the spoiler file. The source ISO's zones must still
-be vanilla; re-applying the same layout does nothing.
+be vanilla. Re-applying the same layout does nothing.
 
 **Stage-key locks follow the dungeons.** Each dungeon's key check moves to
 the call of the node it now sits on, using that node's own `MJ_SWING`
 variant. The node that hosts River Belle Path (never locked) is left open.
 
 **Archipelago seeds** shuffle the zones in the AP world (option Shuffle
-Loading Zones) and send the layout to the patcher in the `.ffcc` file. The AP
+Loading Zones) and send the layout to the patcher in the `.apffcc` file. The AP
 world only keeps layouts that can be finished year by year.
 
 **Veo Lu Sluice stays on this side of the Jegon River.** The river dries up
@@ -198,18 +198,18 @@ The offsets of the ID byte:
 
 | Dungeon | Stage exits | Boss room |
 |---|---|---|
-| River Belle Path | river_0 `0x2C57F`, `0x344D6` | river_1 `0x262C1`, `0x33600`; post-boss `0x54A9F` |
-| Goblin Wall | gob_0 `0x29F2F`, `0x32096`; gob_1 `0x312A6` | gob_2 `0x347E1`; post-boss `0x57C09` |
-| Mine of Cathuriges | mine_0 `0x297D7`, `0x31786`; mine_1 `0x2F916`; mine_2 `0x2FA86` | mine_3 `0x35522`; post-boss `0x58F1F` |
-| Mushroom Forest | kinoko_0 `0x2CB53`, `0x34B16` | kinoko_1 `0x34EAD`; post-boss `0x58042` |
-| Tida | ruin_0 `0x2BA42`, `0x33A20`; ruin_1 `0x32880` | ruin_2 `0x34AE2`; post-boss `0x59202` |
-| Moschet Manor | gigas_0 `0x279D9`, `0x2FCE6`; gigas_1 `0x28D16`; gigas_2 `0x2AEF6`; gigas_3 `0x2AF86`; gigas_4 `0x2B6F6`; gigas_5 `0x2A2B6`; gigas_6 `0x2BB86`; gigas_7 `0x29FA6` | gigas_8 `0x34E89`; post-boss `0x5B9ED` |
-| Veo Lu Sluice | water_0 `0x2D6B3`, `0x355C6` | water_1 `0x341A3`; post-boss `0x5900E` |
-| Selepation Cave | cave_0 `0x2A63F`, `0x32776`; cave_1 `0x2EED6` | cave_2 `0x336C7`; post-boss `0x594DB` |
-| Daemon's Court | fort_0 `0x2B057`, `0x32F36` | fort_1 `0x35CA5`; post-boss `0x5A25E` |
-| Conall Curach | swamp_0 `0x28AB3`, `0x30AB6`; swamp_1 `0x30EF6`; swamp_2 `0x2F146` | swamp_3 `0x341DB`; post-boss `0x592C1` |
-| Rebena Te Ra | city_0 `0x2B68B`, `0x338B6`; city_1 `0x338F6` | city_2 `0x35721`; post-boss `0x59D9B` |
-| Lynari Desert | desert_0 `0x29ADB`, `0x31D56`; desert_1 `0x2EAB6` | desert_2 `0x349D6`; post-boss `0x5A848` |
+| River Belle Path | river_0 `0x2C57F`, `0x344D6` | river_1 `0x262C1`, `0x33600`, post-boss `0x54A9F` |
+| Goblin Wall | gob_0 `0x29F2F`, `0x32096`, gob_1 `0x312A6` | gob_2 `0x347E1`, post-boss `0x57C09` |
+| Mine of Cathuriges | mine_0 `0x297D7`, `0x31786`, mine_1 `0x2F916`, mine_2 `0x2FA86` | mine_3 `0x35522`, post-boss `0x58F1F` |
+| Mushroom Forest | kinoko_0 `0x2CB53`, `0x34B16` | kinoko_1 `0x34EAD`, post-boss `0x58042` |
+| Tida | ruin_0 `0x2BA42`, `0x33A20`, ruin_1 `0x32880` | ruin_2 `0x34AE2`, post-boss `0x59202` |
+| Moschet Manor | gigas_0 `0x279D9`, `0x2FCE6`, gigas_1 `0x28D16`, gigas_2 `0x2AEF6`, gigas_3 `0x2AF86`, gigas_4 `0x2B6F6`, gigas_5 `0x2A2B6`, gigas_6 `0x2BB86`, gigas_7 `0x29FA6` | gigas_8 `0x34E89`, post-boss `0x5B9ED` |
+| Veo Lu Sluice | water_0 `0x2D6B3`, `0x355C6` | water_1 `0x341A3`, post-boss `0x5900E` |
+| Selepation Cave | cave_0 `0x2A63F`, `0x32776`, cave_1 `0x2EED6` | cave_2 `0x336C7`, post-boss `0x594DB` |
+| Daemon's Court | fort_0 `0x2B057`, `0x32F36` | fort_1 `0x35CA5`, post-boss `0x5A25E` |
+| Conall Curach | swamp_0 `0x28AB3`, `0x30AB6`, swamp_1 `0x30EF6`, swamp_2 `0x2F146` | swamp_3 `0x341DB`, post-boss `0x592C1` |
+| Rebena Te Ra | city_0 `0x2B68B`, `0x338B6`, city_1 `0x338F6` | city_2 `0x35721`, post-boss `0x59D9B` |
+| Lynari Desert | desert_0 `0x29ADB`, `0x31D56`, desert_1 `0x2EAB6` | desert_2 `0x349D6`, post-boss `0x5A848` |
 
 River Belle Path's boss room is the only one with two stage exits.
 
@@ -225,10 +225,10 @@ the disc):
   - Conall Curach node: display and zone → River Belle Path's. It's a
     PADCHECK node, so there's no completion byte.
 - `world.cfd`: `0x13A6B` 20 → **2B** (Conall Curach).
-- Conall Curach's exits `34` → `02`: swamp_0 `0x28AB3`, `0x30AB6`; swamp_1
-  `0x30EF6`; swamp_2 `0x2F146`; swamp_3 `0x341DB`, `0x592C1`.
-- River Belle Path's exits `02` → `34`: river_0 `0x2C57F`, `0x344D6`;
-  river_1 `0x262C1`, `0x33600`, `0x54A9F`.
+- Conall Curach's exits `34` → `02`: swamp_0 `0x28AB3` and `0x30AB6`,
+  swamp_1 `0x30EF6`, swamp_2 `0x2F146`, swamp_3 `0x341DB` and `0x592C1`.
+- River Belle Path's exits `02` → `34`: river_0 `0x2C57F` and `0x344D6`,
+  river_1 `0x262C1`, `0x33600` and `0x54A9F`.
 
 ## Easy-to-get-wrong values
 
@@ -247,7 +247,7 @@ Some community notes list different values. The tables above match the disc.
 ## Stage keys and Mount Kilanda
 
 The `mainBasha` call at `0x4E33A` (stage id 172) is a **Leuda** stop
-(`thief_0`), not Mount Kilanda; gating it locks Leuda behind the Kilanda Key
+(`thief_0`), not Mount Kilanda. Gating it locks Leuda behind the Kilanda Key
 and leaves Mount Kilanda open.
 
 Mount Kilanda is entered through four 4-argument `MJ_SWING` calls (STR 174,

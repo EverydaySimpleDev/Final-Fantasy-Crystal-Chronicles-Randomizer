@@ -109,9 +109,6 @@ def export(iso, out_path):
     upgrade = paths(iso)
     lines = [
         '"""',
-        "Written by equipment.py (Final-Fantasy-Crystal-Chronicles-Randomizer) from the",
-        "game files - regenerate instead of editing by hand.",
-        "",
         "PATHS[item][tribe] = the pieces the Nth copy of a progressive equipment",
         "item gives, in order (tribes: 0 Clavat, 1 Lilty, 2 Yuke, 3 Selkie).",
         "SLOT[item] = which equipped piece it upgrades (0 weapon, 1 armor, 2 tribal).",
