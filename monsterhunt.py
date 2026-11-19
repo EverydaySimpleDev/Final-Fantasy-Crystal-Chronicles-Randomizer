@@ -342,7 +342,7 @@ cycles        the cycles it appears in, for one player
 
 ENEMY_GROUPS: spots of which only some spawn per visit (the area picks one
 case of a switch, e.g. 2 of Daemon's Court's 4 Gold Lizard spots). The
-group has an ENEMIES row per enemy that spawns; a kill on any of its spots
+group has an ENEMIES row per enemy that spawns, and a kill on any of its spots
 counts as its first name still unchecked. The names after the rows have no
 row (older seeds may still have them):
     (dungeon, ((name, code), ...), ((monster id, (x, y, z)), ...))
@@ -350,7 +350,7 @@ A spot of None is an ambush group (monsterhunt.AMBUSH): enemies the map
 script moves onto the player, so any kill of that id in the dungeon that no
 other spot matches counts.
 
-OPTIONAL_ENEMIES: enemies the game never makes you meet (the ambushes); the
+OPTIONAL_ENEMIES: enemies the game never makes you meet (the ambushes). The
 AP world excludes them.
 """
 
@@ -371,7 +371,7 @@ def print_list(source):
         where = ", ".join(f"{d} {sorted(info['cycles'][d])}" for d in info["cycles"])
         print(f"{'boss  ' if info['boss'] else '      '}{name:30s} {where}")
     left_out = sorted({n for n in SPECIES.values()} - set(species))
-    print(f"{len(species)} enemies; only with more players: {', '.join(left_out) or 'none'}")
+    print(f"{len(species)} enemies, only with more players: {', '.join(left_out) or 'none'}")
 
 
 if __name__ == "__main__":

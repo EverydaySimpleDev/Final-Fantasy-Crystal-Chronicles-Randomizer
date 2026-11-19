@@ -256,14 +256,14 @@ def _remap_body(dst, donor, fn, dcode, dstart, dend, djoin, start, new_end,
                 raise ValueError(f"{fn}: no dst equivalent for donor permanent var {a >> 8}")
             a = (var_map[a >> 8] << 8) | (a & 0xFF)
         elif op == 0x0B:
-            raise ValueError(f"{fn}: donor case creates objects (NEW); not supported")
+            raise ValueError(f"{fn}: donor case creates objects (NEW), which is not supported")
         body += bytes([op]) + struct.pack(">i", a)
     return body, added
 
 
 def _check_case_pair(dst, donor, fn, join, djoin, code, start, dcode, dstart):
     if isinstance(join, set) or isinstance(djoin, set):
-        raise ValueError(f"{fn}: case has more than one exit target; not supported")
+        raise ValueError(f"{fn}: case has more than one exit target, which is not supported")
     if (join is None) != (djoin is None):
         raise ValueError(f"{fn}: case exit structure differs between files")
     if donor.local_count(fn) > dst.local_count(fn):
@@ -369,7 +369,7 @@ def disable_case(dst, fn, old_id, log, sentinel=-0x7FFF):
     hdr = find_case(code, old_id)[0]
     code[hdr + 2:hdr + 6] = struct.pack(">i", sentinel)
     dst.set_code(fn, code)
-    log.append(f"{fn}: case {old_id} disabled (donor has no case {'{new}'}; default path)")
+    log.append(f"{fn}: case {old_id} disabled (donor has no case {'{new}'}, so it takes the default path)")
 
 
 def swap_spawns(dst, old_id, new_id, log, fn="SPAWN_MONSTER", call="SPAWN"):
@@ -551,7 +551,7 @@ def append_before_return(dst, fn, code_bytes, log):
         raise ValueError(f"{fn}: doesn't end with PUSH0/RET")
     L = len(code) - 2
     if any(t >= L for _, _, t, _ in _jumps(code)):
-        raise ValueError(f"{fn}: something jumps to the tail; can't append safely")
+        raise ValueError(f"{fn}: something jumps to the tail, so it can't append safely")
     dst.set_code(fn, code[:L] + code_bytes + code[L:])
     log.append(f"{fn}: appended {len(code_bytes)} bytes before return")
 

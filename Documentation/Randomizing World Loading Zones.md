@@ -85,6 +85,42 @@ zone     05 000000 XX  03 000000 00  03 000000 MM  03 000000 NN  03 000001 YY  0
 The node's `MJ_SWING_*` call is 40 bytes after the start of its zone block
 (after two more `03 00000000` pushes).
 
+The whole `WM_mapInfoDispOn` call, of which the display block is the first
+two pushes:
+
+```
+03 000000 DD     stage name and Myrrh status (display index)
+03 000000 EE     elements shown in the bubble
+03 000000 03
+03 0000 XXXX     bubble's x position on screen
+03 000000 YY     bubble's y position on screen
+0A FFFF 024A     call WM_mapInfoDispOn
+```
+
+Only DD and EE move with the dungeon. The position stays with the node, so
+the bubble still appears next to the node it belongs to.
+
+EE is a set of bits: Fire 1, Water 2, Wind 4, Earth 8. The bubble has room for
+two icons and shows the two lowest bits that are set, so with three or four
+bits set the higher elements are left out (07 Fire, Water and Wind shows Fire
+and Water, 0E Water, Wind and Earth shows Water and Wind). No dungeon gives
+more than two different elements in a year, vanilla or randomized, so this
+never comes up.
+
+| EE | Shown |
+|---|---|
+| 00 | no element |
+| 01 | Fire |
+| 02 | Water |
+| 03 | Fire and Water |
+| 04 | Wind |
+| 05 | Fire and Wind |
+| 06 | Water and Wind |
+| 08 | Earth |
+| 09 | Fire and Earth |
+| 0A | Water and Earth |
+| 0C | Wind and Earth |
+
 | Dungeon | Display @ | DD | EE | Zone @ | XX | MM | NN | YY | ZZ | Call | Variant |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | River Belle Path | `0x46217` | 00 | 06 | `0x46246` | 89 | 96 | 64 | 68 | 0D | `0x4626E` | ATTRIB_2 |

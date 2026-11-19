@@ -61,7 +61,7 @@ def _read(iso, disc):
 def _write(iso, disc, data):
     off, size, _ = _read(iso, disc)
     if len(data) != size:
-        raise ValueError(f"{disc}: size changed ({len(data)} != {size}); refusing to inject")
+        raise ValueError(f"{disc}: size changed ({len(data)} != {size}), refusing to inject")
     with open(iso, "r+b") as f:
         f.seek(off)
         f.write(data)
@@ -273,7 +273,7 @@ def set_item_model(iso, item_id, model):
 # So to recolor a model we re-encode its loose .tex from a PNG (same byte size,
 # tex.py round-trips exactly) and byte-replace the ORIGINAL texture wherever it
 # appears - loose file + every .mrg - all in place, no FST/size changes.
-# NOTE: many items share one model (e.g. all 64 crafting materials use model
+# Many items share one model (e.g. all 64 crafting materials use model
 # 0x37), so recoloring a shared model recolors every item that uses it. Override
 # the model id first if you want a recolor that affects only your item.
 def _model_tex_disc(iso, model_id, prefix="f"):
@@ -333,8 +333,8 @@ def retexture_model(iso, model_id, png_path, prefix="f"):
     tex.import_tex(texp, pngdir, outp)
     new = open(outp, "rb").read()
     if len(new) != len(orig):
-        raise SystemExit(f"retexture changed the .tex size ({len(new)} != {len(orig)}); "
-                         "cannot inject without resizing")
+        raise SystemExit(f"retexture changed the .tex size ({len(new)} != {len(orig)}), "
+                         "so it cannot be injected without resizing")
     return _replace_bytes_in_iso(iso, orig, new), len(orig)
 
 
@@ -452,7 +452,7 @@ def set_icon_cell(iso, item_id, cell):
         data = f.read()
         base = _icon_table_base(data)
         if data[base + 0x12b] != 38:
-            raise SystemExit("icon-table sanity check failed (Gold != cell 38); "
+            raise SystemExit("icon-table sanity check failed (Gold != cell 38), "
                              "unexpected ISO/version - refusing to patch icon cell")
         off = base + item_id
         old = data[off]
@@ -612,19 +612,25 @@ def cmd_show(iso, item_id):
 def main():
     p = argparse.ArgumentParser(description="Add a custom item to an FFCC ISO (edit a COPY).")
     sub = p.add_subparsers(dest="cmd", required=True)
-    sp = sub.add_parser("list-free"); sp.add_argument("iso")
-    sp = sub.add_parser("show"); sp.add_argument("iso"); sp.add_argument("id")
+    sp = sub.add_parser("list-free")
+    sp.add_argument("iso")
+    sp = sub.add_parser("show")
+    sp.add_argument("iso")
+    sp.add_argument("id")
     sp = sub.add_parser("install-ap", help="bake the Archipelago AP Item into a COPY of a clean ISO")
-    sp.add_argument("iso"); sp.add_argument("--no-icon", action="store_true",
-                                            help="skip the menu-icon art (still sets the definition/name)")
+    sp.add_argument("iso")
+    sp.add_argument("--no-icon", action="store_true",
+                    help="skip the menu-icon art (still sets the definition/name)")
     sp = sub.add_parser("add")
-    sp.add_argument("iso"); sp.add_argument("id"); sp.add_argument("name")
+    sp.add_argument("iso")
+    sp.add_argument("id")
+    sp.add_argument("name")
     sp.add_argument("--like", required=True, help="donor item (name or id) to copy model/behaviour from")
     sp.add_argument("--gil", type=int, help="price (default: keep donor's)")
-    sp.add_argument("--article", default="the", help="grammar article (a/an/the); default 'the'")
+    sp.add_argument("--article", default="the", help="grammar article (a/an/the), default 'the'")
     sp.add_argument("--desc", help="in-game description / help text")
     sp.add_argument("--model", type=lambda s: int(s, 0),
-                    help="override the 3D model id (e.g. 0x37); default copies the donor's")
+                    help="override the 3D model id (e.g. 0x37), by default the donor's is copied")
     sp.add_argument("--retexture", help="recolor the model's texture from this PNG "
                     "(affects every item using that model)")
     sp.add_argument("--shop", help="also place in this shop (base name, e.g. village_0)")

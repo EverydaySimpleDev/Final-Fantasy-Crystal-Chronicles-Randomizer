@@ -1,5 +1,5 @@
 """
-worldzones.py - EXPERIMENTAL: shuffle which dungeon each world-map node leads to.
+worldzones.py - shuffle which dungeon each world-map node leads to (experimental).
 
 A "node" is a dungeon's spot on the world map (named here by the dungeon that
 sits there in vanilla). Putting dungeon D on node N changes, all in place
@@ -239,7 +239,7 @@ def apply_plan(iso, plan, log=None):
         return log
     if cur != vanilla_plan():
         raise ValueError("loading-zone shuffle needs an ISO whose world-map zones are still "
-                         "vanilla; start from a fresh copy of the source ISO")
+                         "vanilla, so start from a fresh copy of the source ISO")
     w = _read(iso, WORLD_CFT)
     cfd = _read(iso, WORLD_CFD)
     # verify every byte we will overwrite is what we expect before touching anything

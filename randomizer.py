@@ -2790,7 +2790,7 @@ def cmd_spoiler(iso, out_path, ref=None, header=None):
     lines = [f"FFCC SPOILER  -  {os.path.basename(iso)}", ""]
     if header:
         lines += list(header) + [""]
-    lines += ["Cycles are by slot position (cycle 1 = early game ... cycle 3 = late);"
+    lines += ["Cycles are by slot position (cycle 1 = early game ... cycle 3 = late)."
               " '/' lists the items a chest can give that cycle.", ""]
     for script, friendly, discs in found:
         dungeon_lines = []
@@ -3262,7 +3262,7 @@ def _patch_kilanda_and_leuda(iso, apply=True):
             f.seek(off)
             f.write(data)
     notes.insert(0, "Mount Kilanda locked (4 entrances)")
-    return "; ".join(notes)
+    return ", ".join(notes)
 
 
 # Mount Kilanda by boat. Port Tipa (port_1), the Jegon River ferry (port_0)
@@ -3301,21 +3301,27 @@ def _kilanda_boat_gate(leuda, item_id, member, check_func_idx=234):
     jumps_pass, jumps_check = [], []
     if leuda:
         prog += load_member(14) + op5(0x03, 2) + bytes([0x2c])   # choice == 2
-        jumps_check.append(len(prog)); prog += op5(0x09, 0)      # JNZ check
+        jumps_check.append(len(prog))
+        prog += op5(0x09, 0)                                     # JNZ check
         prog += load_member(14) + op5(0x03, 0) + bytes([0x2c])   # choice == 0
-        jumps_pass.append(len(prog)); prog += op5(0x08, 0)       # JZ pass
+        jumps_pass.append(len(prog))
+        prog += op5(0x08, 0)                                     # JZ pass
         prog += op5(0x03, 1) + op5(0x00, 0xFFFE390A)             # eventWork[1]
         prog += op5(0x03, 5) + bytes([0x2c])                     # == 5 (river low)
-        jumps_pass.append(len(prog)); prog += op5(0x08, 0)       # JZ pass
+        jumps_pass.append(len(prog))
+        prog += op5(0x08, 0)                                     # JZ pass
     else:
         prog += load_member(27) + op5(0x03, 8) + bytes([0x2c])   # destination == 8
-        jumps_pass.append(len(prog)); prog += op5(0x08, 0)       # JZ pass
+        jumps_pass.append(len(prog))
+        prog += op5(0x08, 0)                                     # JZ pass
     check = len(prog)
     prog += op5(0x03, 0) + op5(0x03, 2) + op5(0x03, item_id)     # caravanIndex, flags, itemId
     prog += op5(0x0a, (0xFFFF << 16) | check_func_idx)            # CALL checkCaravanItem
     prog += op5(0x03, 2) + bytes([0x2c])                         # == 2 (owned)
-    jz_deny = len(prog); prog += op5(0x08, 0)                    # JZ deny
-    jumps_pass.append(len(prog)); prog += op5(0x07, 0)           # JMP pass
+    jz_deny = len(prog)
+    prog += op5(0x08, 0)                                         # JZ deny
+    jumps_pass.append(len(prog))
+    prog += op5(0x07, 0)                                         # JMP pass
     deny = len(prog)
     prog += op5(0x03, -1) + bytes([0x3c])                        # return -1 ("no")
     passed = len(prog)
@@ -3587,7 +3593,7 @@ def cmd_patch(iso, json_path, max_artifacts=4):
         if customitem.ensure_ap_item(iso):
             print("Installed AP Item into ISO (definition, name, icon and logo model).")
     except Exception as e:
-        print(f"note: could not auto-install AP Item ({e}); JSON placing it may fail")
+        print(f"note: could not auto-install AP Item ({e}), so JSON placing it may fail")
     try:
         import titlelogo
         if titlelogo.install(iso):
@@ -3886,9 +3892,9 @@ def _logic_plan_from_spec(iso, spec):
         plan, chain, report = logic_plan(iso, random.Random(), shuffle, keys,
                                          bool(spec.get("_goblin_wall_always_visible")), fixed)
     except Exception as e:
-        print(f"WARNING: progression logic found no valid layout ({e}); using plain random")
+        print(f"WARNING: progression logic found no valid layout ({e}), using plain random")
         return _zone_plan_from_spec(spec), None
-    print("Progression logic: " + "; ".join(report))
+    print("Progression logic: " + ", ".join(report))
     return (plan if (shuffle or fixed) else None), chain
 
 
@@ -3906,7 +3912,7 @@ def apply_world_zones(iso, plan, spoiler=None, icons=False):
             worldzones.apply_icons(iso, plan, log)
         except Exception as e:
             print(f"note: could not update world-map icons ({e})")
-    print("World-map loading zones (EXPERIMENTAL): " + "; ".join(log))
+    print("World-map loading zones (EXPERIMENTAL): " + ", ".join(log))
     if spoiler:
         with open(spoiler, "a", encoding="utf-8") as f:
             f.write("\n" + "\n".join(worldzones.plan_text(worldzones.complete_plan(plan))) + "\n")
@@ -3954,7 +3960,7 @@ def apply_bosses(iso, boss_plan, spoiler=None):
         print(f"note: could not place bosses ({e})")
         return False
     moved = [l for l in log if not l.startswith("    ")]
-    print("Bosses (EXPERIMENTAL): " + ("; ".join(moved) if moved else "no changes"))
+    print("Bosses (EXPERIMENTAL): " + (", ".join(moved) if moved else "no changes"))
     if spoiler:
         with open(spoiler, "a", encoding="utf-8") as f:
             f.write("\n" + "\n".join(bossshuffle.plan_text(boss_plan)) + "\n")
@@ -3964,7 +3970,7 @@ def apply_bosses(iso, boss_plan, spoiler=None):
 # Version of the Archipelago world (worlds/ffcc VERSION) this randomizer is made
 # for. Seeds record the version that generated them. The AP patch warns when
 # they differ, since options and item placement rules change between versions.
-AP_WORLD_VERSION = (0, 3, 0)
+AP_WORLD_VERSION = (0, 4, 0)
 
 
 def load_ffcc(path):
@@ -3999,8 +4005,8 @@ def ap_world_version_problem(placement_json):
     if seed == want:
         return None
     if not seed or seed < want:
-        return (f"This seed was made with an older FFCC apworld ({_version_text(seed) or 'unknown'}); "
-                f"this randomizer is for apworld {_version_text(want)}. Install the newest "
+        return (f"This seed was made with an older FFCC apworld ({_version_text(seed) or 'unknown'}). "
+                f"This randomizer is for apworld {_version_text(want)}. Install the newest "
                 f"apworld and generate the seed again, or some fixes won't apply.")
     return (f"This seed was made with a newer FFCC apworld ({_version_text(seed)}) than this "
             f"randomizer supports ({_version_text(want)}). Download the newest randomizer.")
@@ -4081,12 +4087,12 @@ def cmd_hybrid_patch(iso, ref_iso, ffcc_file):
         if customitem.ensure_ap_item(iso):
             print("Installed AP Item into ISO (definition, name, icon and logo model).")
     except Exception as e:
-        print(f"Note: could not auto-install AP Item ({e}); 0x162 must already be present.")
+        print(f"Note: could not auto-install AP Item ({e}), so 0x162 must already be present.")
     try:
         import titlelogo
         # the disc name and banner say whose seed this ISO is for
         if titlelogo.install(iso, player=self_player, seed=placement_json.get("seed")):
-            print(f"Installed the Archipelago title logo; disc named for {self_player}, "
+            print(f"Installed the Archipelago title logo, disc named for {self_player}, "
                   f"seed {placement_json.get('seed')}.")
     except Exception as e:
         print(f"Note: could not install the title logo ({e}).")
@@ -4115,6 +4121,11 @@ def cmd_hybrid_patch(iso, ref_iso, ffcc_file):
     if placement_json.get("grooming_tools"):
         patch_grooming_tools(iso)
         print("Grooming tools: locked until found")
+    # AP option Monster Hunt Tint: the client colours the enemies still to check
+    if settings.get("monster_hunt_tint") and settings.get("monster_hunt_checks"):
+        import monstertint
+        monstertint.apply(iso)
+        print("Monster Hunt Tint: enemies can be coloured by the client")
     # AP option Show Play Timer: 1 play time, 2 speedrun (automatic), 3 speedrun (manual)
     timer = {1: "play_time", 2: "speedrun", 3: "manual"}.get(int(settings.get("show_play_timer") or 0))
     if timer:
@@ -4174,6 +4185,22 @@ def cmd_hybrid_patch(iso, ref_iso, ffcc_file):
         import customitem
         customitem.create_spell_rings(iso)      # after the stage keys (shared description bytes)
         print("Extra spell rings: added Gravity, Holy, Slow, Stop and Haste Rings.")
+    # the GBA has its own item names: give it the new items' names
+    import gbanames
+    if gbanames.apply(iso, log=lambda line: None):
+        print("GBA item names: the new items are named on the GBA too")
+    # AP option All-in-One GBA Radar
+    if settings.get("all_in_one_radar"):
+        import gbaradar
+        gbaradar.apply(iso)
+        print("All-in-one GBA radar: map, exits, enemies and chests on one radar")
+    # AP options GBA Bonus Pool Pages and GBA Enemy Drops Pages (after the GBA names)
+    if settings.get("gba_bonus_pool") or settings.get("gba_enemy_drops"):
+        import gbaloot
+        gbaloot.apply(iso, bool(settings.get("gba_bonus_pool")), bool(settings.get("gba_enemy_drops")))
+        print("GBA loot pages: press A on the GBA radar ("
+              + ", ".join(name for key, name in (("gba_bonus_pool", "bonus pool"), ("gba_enemy_drops", "enemy drops"))
+                          if settings.get(key)) + ")")
     # AP options Starting Stats and Starting Hearts (left alone when they're off)
     if placement_json.get("tribe_stats") or placement_json.get("starting_hearts"):
         import tribestats
@@ -4182,16 +4209,22 @@ def cmd_hybrid_patch(iso, ref_iso, ffcc_file):
             print(f"Starting stats: {tribe} has {hearts} hearts, Strength {strength}, Magic {magic}, "
                   f"Defense {defense}")
 
-    # AP option Monster Hunt Checks: enemies are the checks, so every chest is
-    # emptied and hidden (step 4) and none is gold.
+    # AP option Monster Hunt Checks: the enemies are checks. With Chest Checks
+    # off (and in seeds made before that option) the chests aren't, so every
+    # chest is emptied and hidden (step 4) and none is gold.
     hunt_checks = bool(settings.get("monster_hunt_checks"))
+    chests_used = not hunt_checks or bool(settings.get("chest_checks"))
+    # AP option Later Cycles: Removed leaves the chests after Progression
+    # Cycles out of the seed, so they are emptied (no AP logo, they aren't checks)
+    last_cycle = (int(settings.get("progression_cycles") or 3)
+                  if int(settings.get("later_cycles") or 0) == 1 else 3)
     # AP option Chest Color Matches Contents (off for seeds made before it existed)
-    gold_chests = bool(settings.get("chest_color_matches_contents")) and not hunt_checks
+    gold_chests = bool(settings.get("chest_color_matches_contents")) and chests_used
     # Items that don't come out of the chest (other players' items, traps,
     # gil, ...) leave it empty, and the chest shows the Archipelago logo.
     # The AP Item's model isn't preloaded with any stage, so dropping it
     # stalled the game while it loaded from the disc.
-    ap_chests = not hunt_checks
+    ap_chests = chests_used
     if ap_chests and chestcolors.install(iso):
         print("Added the gold and AP chest textures.")
     ap_looks = set()  # (dungeon, cycle, chest) whose chest is empty and shows the logo
@@ -4245,7 +4278,10 @@ def cmd_hybrid_patch(iso, ref_iso, ffcc_file):
                         if c["split"]:
                             treasure.write_slot(buf, slots[slot], 0)   # not a location: empty
                         continue
-                    item_id = 0 if hunt_checks else chest_items.get((friendly, cycle, c["chest"]), AP_ITEM_ID)
+                    if not chests_used or cycle > last_cycle:
+                        item_id = 0                                    # not a check: empty
+                    else:
+                        item_id = chest_items.get((friendly, cycle, c["chest"]), AP_ITEM_ID)
                     if item_id == AP_ITEM_ID:
                         item_id = 0
                         ap_looks.add((friendly, cycle, c["chest"]))
@@ -4282,8 +4318,8 @@ def cmd_hybrid_patch(iso, ref_iso, ffcc_file):
                 print(f"  {script:8s} a{area}: {written} chest slot(s) patched (hybrid)")
 
     # ── 4. Hide Collected Chests: the client fills in each dungeon's mask.
-    # With Monster Hunt checks every chest is hidden instead.
-    if hunt_checks:
+    # With only the enemies as checks every chest is hidden instead.
+    if not chests_used:
         import hidechests
         hidechests.apply(iso, hide_all=True)
         print("Monster Hunt checks: chests emptied and hidden (enemies are the checks)")
@@ -4291,6 +4327,10 @@ def cmd_hybrid_patch(iso, ref_iso, ffcc_file):
         import hidechests
         hidechests.apply(iso)
         print("Hide collected chests: dungeon scripts patched")
+    if chests_used and hunt_checks:
+        print("Monster Hunt checks with Chest Checks: the chests and the enemies are both checks")
+    if chests_used and last_cycle < 3:
+        print(f"Later Cycles: the chests after Cycle {last_cycle} are empty (not part of this seed)")
 
     # ── 5. Dungeon shortcuts (AP options with the same names as shortcuts.SHORTCUTS)
     import shortcuts
@@ -4316,6 +4356,21 @@ def cmd_hybrid_patch(iso, ref_iso, ffcc_file):
     # ── 8. The Other gender choice and its neutral wording (every ISO gets it)
     apply_other_gender(iso)
 
+    # AP option Skip Miasma Streams: a gate takes the caravan across (stream_0.cft)
+    if settings.get("skip_miasma_streams"):
+        import miasmaskip
+        miasmaskip.apply(iso)
+        print("Skip Miasma Streams: entering a Miasma Stream goes straight to the other side")
+
+    # ── 9. Cycle Select / Cycle Locks: the "Which cycle?" menu when entering a
+    # dungeon. Last, since it grows world.cft, which earlier steps edit by offset.
+    cycle_locks = int(settings.get("cycle_locks") or 0)
+    if settings.get("cycle_select") or cycle_locks:
+        import cycleselect
+        cycleselect.apply(iso, locked=bool(cycle_locks))
+        print("Cycle Locks: the cycle menu offers the cycles unlocked by the multiworld" if cycle_locks
+              else "Cycle Select: a dungeon's reached cycles can be picked when entering it")
+
     print(f"Hybrid AP patch complete: {total_slots} slot(s) written into {os.path.basename(iso)}.")
 
 
@@ -4339,7 +4394,7 @@ def cmd_ap_patch(iso, ref_iso):
         if customitem.ensure_ap_item(iso):
             print("Installed AP Item into ISO (definition, name, icon and logo model).")
     except Exception as e:
-        print(f"Note: could not auto-install AP Item ({e}); 0x162 must already be present.")
+        print(f"Note: could not auto-install AP Item ({e}), so 0x162 must already be present.")
     try:
         import titlelogo
         if titlelogo.install(iso):
@@ -4425,9 +4480,9 @@ def cmd_run(iso, args, apply):
             try:
                 zone_plan, _, report = logic_plan(iso, zone_rng, True, False,
                                                   getattr(args, "goblin_wall_always_visible", False))
-                print("Progression logic: " + "; ".join(report))
+                print("Progression logic: " + ", ".join(report))
             except Exception as e:
-                print(f"WARNING: progression logic found no valid layout ({e}); using plain random")
+                print(f"WARNING: progression logic found no valid layout ({e}), using plain random")
         if zone_plan is None:
             zone_plan = worldzones.random_plan(zone_rng)
     holy = stone_dungeons_for(boss_plan) if not getattr(args, "no_stone_protection", False) else {}
@@ -4476,16 +4531,16 @@ def main():
     p.add_argument("iso")
     p.add_argument("json", nargs="?", help="JSON file (for `patch`)")
     p.add_argument("--shop", action="append",
-                   help="limit shop randomization to this shop base name (repeatable; "
+                   help="limit shop randomization to this shop base name (repeatable, "
                         "default = all shops). Names come from `list-shops`")
     p.add_argument("--prices", action="store_true",
-                   help="also shuffle item prices (with `shops`); or use the `prices` "
+                   help="also shuffle item prices (with `shops`), or use the `prices` "
                         "command to shuffle prices only")
     p.add_argument("--seed", type=int, default=random.randrange(1 << 30))
     p.add_argument("--mode", choices=["cross", "category"], default="cross")
     p.add_argument("--rolls", choices=["cycle", "slot", "chest"], default="cycle",
-                   help="cycle: one item per chest per cycle (default); "
-                        "slot: every slot independent (most variety); "
+                   help="cycle: one item per chest per cycle (default), "
+                        "slot: every slot independent (most variety), "
                         "chest: one item for the whole chest")
     p.add_argument("--pool", choices=["all", "artifact", "magicite", "consumable", "recipe"],
                    default="all")
@@ -4495,21 +4550,21 @@ def main():
     p.add_argument("--fill-empty", action="store_true")
     p.add_argument("--chests-only", action="store_true",
                    help="randomize only Game8-identified chests, leaving enemy-drop / "
-                        "shared sets alone (needs --ref; dungeons without Game8 data are skipped)")
+                        "shared sets alone (needs --ref, and dungeons without Game8 data are skipped)")
     p.add_argument("--ref", help="vanilla ISO used to label spoiler chests by Game8 chest number")
     p.add_argument("--no-stone-protection", action="store_true",
                    help="don't keep the magicite needed for Holy (Lich/Zombie Dragon) and "
                         "Tida's Fire vanilla (with `run`)")
     p.add_argument("--randomize-world-zones", action="store_true",
                    help="EXPERIMENTAL: shuffle which dungeon each world-map node leads to "
-                        "(with `run`; 12 dungeons, Mount Kilanda and Mount Vellenge stay)")
+                        "(with `run`, covers 12 dungeons while Mount Kilanda and Mount Vellenge stay)")
     p.add_argument("--no-progression-logic", action="store_true",
                    help="with --randomize-world-zones, shuffle with no reachability check")
     p.add_argument("--no-world-zone-icons", action="store_true",
                    help="with --randomize-world-zones, keep each world-map stop's "
                         "original building instead of showing its new dungeon")
     p.add_argument("--randomize-bosses", action="store_true",
-                   help="EXPERIMENTAL: shuffle dungeon bosses between arenas (with `run`; "
+                   help="EXPERIMENTAL: shuffle dungeon bosses between arenas (with `run`, "
                         "Goblin King and Lich stay home). Needs a copy whose bosses "
                         "haven't been moved yet")
     p.add_argument("--ffcc", help="the seed's .apffcc (or older .ffcc) file (for `ap-hybrid`)")

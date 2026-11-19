@@ -1,13 +1,13 @@
 """
-chmio.py - byte-exact reader/writer for FFCC's IFF-tag model/texture containers
-(CHM/CHA/CHD/TEX ... - the same family tag.py parses, but lossless so we can
-WRITE them back). This is the foundation for a Blender -> game model importer:
-parse a model into a Node tree, edit it, and serialize byte-for-byte.
+chmio.py - Reader/writer for FFCC's IFF-tag model/texture containers
+(CHM/CHA/CHD/TEX ... - the same family tag.py parses, but lossless so they can
+be written back). This is the base of the Blender -> game model importer:
+parse a model into a Node tree, edit it, and serialize it again.
 
-Each tag = 16-byte header [4 type][4 big-endian length][8 mystery] then `length`
+Each tag = 16-byte header [4 type][4 big-endian length][8 unknown] then `length`
 bytes of content, then zero-padding up to the next 16-byte boundary. Content is
-an ordered mix of child tags and raw byte runs. We preserve that order and the
-trailing pad so an unmodified tree re-serializes identically.
+an ordered mix of child tags and raw byte runs. That order and the trailing
+pad are kept, so an unmodified tree re-serializes identically.
 """
 
 import struct
@@ -65,8 +65,8 @@ class Node:
 
     def serialize(self):
         body = self.content()
-        # Keep the original pad bytes if content size is unchanged (byte-exact
-        # round-trip), otherwise recompute zero-padding to the 16-byte boundary.
+        # Keep the original pad bytes if content size is unchanged (so the file
+        # round-trips unchanged), otherwise recompute zero-padding to the 16-byte boundary.
         # Pad length depends only on content length (each tag starts 16-aligned).
         if len(body) == self._clen:
             pad = self.pad
@@ -134,7 +134,7 @@ def parse_doc(buf):
     """Parse a whole file as a sequence of top-level items (Node | raw bytes).
     Most model files are a single root tag, but a few (e.g. some .tex) hold
     several sibling tags - and a root tag may even declare length 0 with real
-    content after it - so we walk top-level until EOF."""
+    content after it - so the top level is walked until EOF."""
     items, p = [], 0
     while p < len(buf):
         if buf[p:p + 4] in VALID:
@@ -175,4 +175,4 @@ if __name__ == "__main__":
     print(f"{sys.argv[1]}: {len(data)} bytes  round-trip {'IDENTICAL' if ok else 'DIFFERS'}")
     if not ok:
         i = next((k for k in range(min(len(data), len(rebuilt))) if data[k] != rebuilt[k]), -1)
-        print(f"  len {len(data)} -> {len(rebuilt)}; first diff at {i}")
+        print(f"  len {len(data)} -> {len(rebuilt)}, first diff at {i}")

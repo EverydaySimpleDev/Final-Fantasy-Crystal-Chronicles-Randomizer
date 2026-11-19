@@ -1,5 +1,5 @@
 """
-bossshuffle.py - EXPERIMENTAL: move dungeon bosses between arenas.
+bossshuffle.py - Move dungeon bosses between arenas (experimental).
 
 Each boss arena (`<dungeon>_<n>.cft`) gets another dungeon's boss, with that
 boss's helpers and summons, using cftpatch.transplant_group (see
@@ -221,7 +221,7 @@ def apply_boss_plan(iso, plan, log=None):
         return log
     if status != vanilla_plan():
         raise ValueError("boss placement needs an ISO whose bosses are still in their "
-                         "original arenas; start from a fresh copy of the source ISO")
+                         "original arenas, so start from a fresh copy of the source ISO")
     vanilla = {s: _read(iso, _disc(a), "v") for s, a, _, _ in BOSSES}
     edits, teleports = {}, {}
     for script, name in moved.items():

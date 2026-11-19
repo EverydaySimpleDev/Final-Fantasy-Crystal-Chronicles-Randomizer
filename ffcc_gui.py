@@ -22,6 +22,8 @@ import os
 import queue
 import random
 import shutil
+import subprocess
+import sys
 import threading
 import tkinter as tk
 import zipfile as _zipfile
@@ -29,12 +31,14 @@ from tkinter import ttk, filedialog, messagebox, scrolledtext
 
 import lootcft
 import gciso
+import isocheck
 import items as itemtool
 import randomizer as rnd
 import chesteditor
 import shops
 import customitem
 import ffcc_items
+import qolpatch
 
 DUNGEONS = lootcft.DUNGEONS                      # [(script, friendly)]
 POOLS = ["all", "artifact", "magicite", "consumable", "recipe"]
@@ -110,7 +114,8 @@ class LogPanel(ttk.Frame):
     """A scrolled text output with a Clear button."""
     def __init__(self, master):
         super().__init__(master)
-        bar = ttk.Frame(self); bar.pack(fill="x")
+        bar = ttk.Frame(self)
+        bar.pack(fill="x")
         ttk.Label(bar, text="Output:").pack(side="left")
         ttk.Button(bar, text="Clear", command=self.clear).pack(side="right")
         self.txt = scrolledtext.ScrolledText(self, height=14, wrap="word",
@@ -126,9 +131,27 @@ class LogPanel(ttk.Frame):
         self.txt.see("end")
 
 
+def iso_is_supported(path):
+    """Check the source ISO before building a new ISO from it (isocheck.py).
+    An error stops with a message, a warning asks whether to go on. True to go on."""
+    errors, warnings = isocheck.check(path)
+    if errors:
+        messagebox.showerror("Unsupported ISO", errors[0])
+        return False
+    if warnings:
+        return messagebox.askyesno("Modified ISO?", warnings[0] + "\n\nPatch it anyway?")
+    return True
+
+
 def open_file(path):
+    """Open a file with the program the system uses for it."""
     try:
-        os.startfile(path)            # Windows
+        if sys.platform == "win32":
+            os.startfile(path)
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", path])
+        else:
+            subprocess.Popen(["xdg-open", path])
     except Exception:
         pass
 
@@ -199,6 +222,11 @@ class RandomizerTab(ttk.Frame):
         self.goblin_wall_always_visible = tk.BooleanVar(value=False)
         self.randomize_miasma_elements = tk.BooleanVar(value=False)
         self.stage_key_locks = tk.BooleanVar(value=False)
+        self.cycle_select = tk.BooleanVar(value=False)
+        self.skip_miasma_streams = tk.BooleanVar(value=False)
+        self.all_in_one_radar = tk.BooleanVar(value=False)
+        self.gba_bonus_pool = tk.BooleanVar(value=False)
+        self.gba_enemy_drops = tk.BooleanVar(value=False)
         self.randomize_bosses = tk.BooleanVar(value=False)
         self.randomize_world_zones = tk.BooleanVar(value=False)
         self.world_zone_icons = tk.BooleanVar(value=True)
@@ -208,11 +236,13 @@ class RandomizerTab(ttk.Frame):
 
         # Source ISO (read-only) -> Output ISO (created/written). Choosing a
         # source auto-suggests an output path so the original is never touched.
-        sf = ttk.Frame(self); sf.pack(fill="x", pady=2)
+        sf = ttk.Frame(self)
+        sf.pack(fill="x", pady=2)
         ttk.Label(sf, text="Source ISO (your original, never changed):", width=46).pack(side="left")
         ttk.Entry(sf, textvariable=self.src).pack(side="left", fill="x", expand=True, padx=4)
         ttk.Button(sf, text="Browse…", command=self._browse_src).pack(side="left")
-        of = ttk.Frame(self); of.pack(fill="x", pady=2)
+        of = ttk.Frame(self)
+        of.pack(fill="x", pady=2)
         ttk.Label(of, text="Output ISO (the randomized copy):", width=46).pack(side="left")
         ttk.Entry(of, textvariable=self.out).pack(side="left", fill="x", expand=True, padx=4)
         ttk.Button(of, text="Save as…", command=self._browse_out).pack(side="left")
@@ -221,7 +251,8 @@ class RandomizerTab(ttk.Frame):
         opt = ttk.LabelFrame(self, text="Options", padding=8)
         opt.pack(fill="x", pady=6)
 
-        r1 = ttk.Frame(opt); r1.pack(fill="x", pady=2)
+        r1 = ttk.Frame(opt)
+        r1.pack(fill="x", pady=2)
         ttk.Label(r1, text="Seed:").pack(side="left")
         self.seed_entry = ttk.Entry(r1, textvariable=self.seed, width=12)
         self.seed_entry.pack(side="left", padx=4)
@@ -229,20 +260,23 @@ class RandomizerTab(ttk.Frame):
                         command=self._toggle_seed).pack(side="left")
         self._toggle_seed()
 
-        r2 = ttk.Frame(opt); r2.pack(fill="x", pady=2)
+        r2 = ttk.Frame(opt)
+        r2.pack(fill="x", pady=2)
         ttk.Label(r2, text="Mode:").pack(side="left")
         ttk.Radiobutton(r2, text="Any item anywhere", value="cross",
                         variable=self.mode).pack(side="left", padx=4)
         ttk.Radiobutton(r2, text="Keep original category", value="category",
                         variable=self.mode).pack(side="left", padx=4)
 
-        r3 = ttk.Frame(opt); r3.pack(fill="x", pady=2)
+        r3 = ttk.Frame(opt)
+        r3.pack(fill="x", pady=2)
         ttk.Label(r3, text="Rolls:").pack(side="left")
         for val, lbl in (("cycle", "One per cycle"), ("slot", "Per slot (most variety)"),
                          ("chest", "One per chest")):
             ttk.Radiobutton(r3, text=lbl, value=val, variable=self.rolls).pack(side="left", padx=4)
 
-        r4 = ttk.Frame(opt); r4.pack(fill="x", pady=2)
+        r4 = ttk.Frame(opt)
+        r4.pack(fill="x", pady=2)
         ttk.Label(r4, text="Item pool:").pack(side="left")
         ttk.Combobox(r4, state="readonly", width=12, values=POOLS,
                      textvariable=self.pool).pack(side="left", padx=4)
@@ -251,52 +285,61 @@ class RandomizerTab(ttk.Frame):
                      values=["All dungeons"] + [n for _, n in DUNGEONS],
                      textvariable=self.dungeon).pack(side="left", padx=4)
 
-        r5 = ttk.Frame(opt); r5.pack(fill="x", pady=2)
+        r5 = ttk.Frame(opt)
+        r5.pack(fill="x", pady=2)
         ttk.Label(r5, text="Max artifacts per cycle:").pack(side="left")
         ttk.Spinbox(r5, from_=0, to=99, width=4, textvariable=self.max_art).pack(side="left", padx=4)
         ttk.Label(r5, text="(player can carry 4)", foreground="#777").pack(side="left")
         ttk.Checkbutton(r5, text="Also fill empty/placeholder slots",
                         variable=self.fill).pack(side="left", padx=12)
 
-        r6 = ttk.Frame(opt); r6.pack(fill="x", pady=2)
+        r6 = ttk.Frame(opt)
+        r6.pack(fill="x", pady=2)
         ttk.Checkbutton(r6, text="Randomize enemy drops too (uncheck = chests only)",
                         variable=self.include_drops).pack(side="left")
-        r7 = ttk.Frame(opt); r7.pack(fill="x", pady=2)
+        r7 = ttk.Frame(opt)
+        r7.pack(fill="x", pady=2)
         ttk.Checkbutton(r7, text="Keep required magicite obtainable (Holy for Lich / Zombie "
                         "Dragon, Fire for Tida's webs)",
                         variable=self.protect_stones).pack(side="left")
 
         # --- shops (independent of chest randomization) ---
-        sh = ttk.LabelFrame(self, text="Shops", padding=8); sh.pack(fill="x", pady=4)
+        sh = ttk.LabelFrame(self, text="Shops", padding=8)
+        sh.pack(fill="x", pady=4)
         ttk.Checkbutton(sh, text="Randomize shop inventories (stock swapped within "
-                        "sellable items; prices stay valid)",
+                        "sellable items, so prices stay valid)",
                         variable=self.rand_shops, command=self._toggle_shops).pack(anchor="w")
-        self.shop_box = ttk.Frame(sh); self.shop_box.pack(fill="x", padx=18, pady=(2, 0))
+        self.shop_box = ttk.Frame(sh)
+        self.shop_box.pack(fill="x", padx=18, pady=(2, 0))
         ttk.Label(self.shop_box, text="Which shops:").pack(side="left")
         self._shop_checks = []
         for base, name in shops.SHOPS.items():
             cb = ttk.Checkbutton(self.shop_box, text=name, variable=self.shop_vars[base])
-            cb.pack(side="left", padx=3); self._shop_checks.append(cb)
-        ttk.Checkbutton(sh, text="Randomize shop prices (shuffles item prices; "
+            cb.pack(side="left", padx=3)
+            self._shop_checks.append(cb)
+        ttk.Checkbutton(sh, text="Randomize shop prices (shuffles item prices, "
                         "works with or without item randomization)",
                         variable=self.rand_prices).pack(anchor="w", pady=(4, 0))
         self._toggle_shops()
 
         # --- bonus pools (post-stage rewards, newbattle.cfd - independent file) ---
-        bp = ttk.LabelFrame(self, text="Bonus Pools", padding=8); bp.pack(fill="x", pady=4)
+        bp = ttk.LabelFrame(self, text="Bonus Pools", padding=8)
+        bp.pack(fill="x", pady=4)
         ttk.Checkbutton(bp, text="Randomize post-stage bonus rewards (uses the same "
-                        "Mode/Item pool settings above; 13 of 14 dungeons have one - "
+                        "Mode/Item pool settings above, and 13 of 14 dungeons have one - "
                         "Mount Vellenge has no bonus-pool block in the real game)",
                         variable=self.rand_bonus).pack(anchor="w")
 
         # --- gameplay tweaks (Start.dol patches, independent of item rando) ---
-        gt = ttk.LabelFrame(self, text="Gameplay Tweaks", padding=8); gt.pack(fill="x", pady=4)
+        gt = ttk.LabelFrame(self, text="Gameplay Tweaks", padding=8)
+        gt.pack(fill="x", pady=4)
         ttk.Checkbutton(gt, text="Mog never gets tired (removes the stamina penalty for "
                         "running while carrying the chalice)",
                         variable=self.mog_never_tired).pack(anchor="w")
         ttk.Checkbutton(gt, text="Show trap visuals (Archipelago status traps play the game's own freeze/burn/poison/paralysis/slow effects)",
                         variable=self.trap_visuals).pack(anchor="w")
-        sl = ttk.Frame(gt); sl.pack(fill="x", anchor="w", pady=(6, 0))
+        sl = ttk.Frame(gt)
+        sl.pack(fill="x", anchor="w", pady=(6, 0))
         ttk.Label(sl, text="Starting location:").pack(side="left")
         self.start_loc_box = ttk.Combobox(sl, state="readonly", width=16,
                                           values=list(rnd.STARTING_LOCATIONS),
@@ -332,12 +375,31 @@ class RandomizerTab(ttk.Frame):
                   "no dungeon's key is ever placed inside that same dungeon. All 13 "
                   "gated dungeons check for their key on entry.",
                   foreground="#a33", wraplength=520, justify="left").pack(anchor="w")
+        ttk.Checkbutton(gt, text="Cycle select: pick which reached cycle of a dungeon to play when entering it",
+                        variable=self.cycle_select).pack(anchor="w", pady=(6, 0))
+        ttk.Checkbutton(gt, text="Skip Miasma Stream gates: entering one takes the caravan straight to the other side",
+                        variable=self.skip_miasma_streams).pack(anchor="w", pady=(6, 0))
+        ttk.Label(gt, text="Works whatever element the chalice holds, so a wrong element can't leave "
+                  "you stuck behind a stream. The Mystery Miasma Stream still needs Unknown.",
+                  wraplength=520, justify="left").pack(anchor="w")
+        ttk.Checkbutton(gt, text="All-in-one GBA radar: the map, exits, enemies and chests on one radar",
+                        variable=self.all_in_one_radar).pack(anchor="w", pady=(6, 0))
+        ttk.Label(gt, text="For a GBA in controller port 2 (in Dolphin: \"GBA (Integrated)\"), or "
+                  "each player's GBA in multiplayer.",
+                  wraplength=520, justify="left").pack(anchor="w")
+        ttk.Checkbutton(gt, text="GBA bonus pool pages: press A on the GBA radar to see the end-of-stage bonus items",
+                        variable=self.gba_bonus_pool).pack(anchor="w", pady=(6, 0))
+        ttk.Checkbutton(gt, text="GBA enemy drops pages: press A on the GBA radar to see the artifacts enemies carry",
+                        variable=self.gba_enemy_drops).pack(anchor="w", pady=(6, 0))
+        ttk.Label(gt, text="Single player, with a GBA in controller port 2. A turns the page, B goes back "
+                  "to the radar.",
+                  wraplength=520, justify="left").pack(anchor="w")
         ttk.Checkbutton(gt, text="Randomize world-map loading zones (which dungeon each map spot leads to)",
                         variable=self.randomize_world_zones).pack(anchor="w", pady=(6, 0))
         ttk.Label(gt, text="EXPERIMENTAL: shuffles 12 dungeons between their world-map spots "
                   "(Mount Kilanda and Mount Vellenge stay put). Each spot keeps its own "
                   "Miasma Stream gating and Myrrh-drop elements, so progression works like "
-                  "vanilla; only the dungeon you enter changes, and its exits return you to "
+                  "vanilla. Only the dungeon you enter changes, and its exits return you to "
                   "the spot you came from. Stage-key locks follow the dungeons. Also turns "
                   "on \"Show Goblin Wall...\", since a dungeon may be moved onto its spot. "
                   "For Archipelago seeds, use the AP world's Shuffle Loading Zones option "
@@ -375,7 +437,7 @@ class RandomizerTab(ttk.Frame):
                         variable=self.randomize_bosses).pack(anchor="w", pady=(6, 0))
         ttk.Label(gt, text="EXPERIMENTAL: each dungeon's boss room gets another dungeon's "
                   "boss, with its helpers and summons. Goblin King and Lich stay in their "
-                  "own arenas (they need their arena's scripts); Mount Vellenge's final "
+                  "own arenas (they need their arena's scripts), and Mount Vellenge's final "
                   "boss isn't moved. A moved boss may still play the old boss's entrance. "
                   "Holy stays obtainable wherever Lich and Zombie Dragon end up. To choose "
                   "bosses per dungeon (any boss, including Lich), use Export JSON / Patch "
@@ -390,23 +452,38 @@ class RandomizerTab(ttk.Frame):
                   "destabilize the game.",
                   foreground="#a33", wraplength=520, justify="left").pack(anchor="w")
 
-        btns = ttk.Frame(self); btns.pack(fill="x", pady=4)
+        btns = ttk.Frame(self)
+        btns.pack(fill="x", pady=4)
         self._buttons = []
-        b = ttk.Button(btns, text="List dungeons", command=self.do_list); b.pack(side="left"); self._buttons.append(b)
-        b = ttk.Button(btns, text="Preview", command=lambda: self.do_run(False)); b.pack(side="left", padx=4); self._buttons.append(b)
-        b = ttk.Button(btns, text="Randomize!", command=lambda: self.do_run(True)); b.pack(side="left"); self._buttons.append(b)
+        b = ttk.Button(btns, text="List dungeons", command=self.do_list)
+        b.pack(side="left")
+        self._buttons.append(b)
+        b = ttk.Button(btns, text="Preview", command=lambda: self.do_run(False))
+        b.pack(side="left", padx=4)
+        self._buttons.append(b)
+        b = ttk.Button(btns, text="Randomize!", command=lambda: self.do_run(True))
+        b.pack(side="left")
+        self._buttons.append(b)
         ttk.Separator(btns, orient="vertical").pack(side="left", fill="y", padx=8)
-        b = ttk.Button(btns, text="Write spoiler", command=self.do_spoiler); b.pack(side="left", padx=2); self._buttons.append(b)
-        b = ttk.Button(btns, text="Export JSON", command=self.do_export); b.pack(side="left", padx=2); self._buttons.append(b)
-        b = ttk.Button(btns, text="Patch from JSON…", command=self.do_patch); b.pack(side="left", padx=2); self._buttons.append(b)
+        b = ttk.Button(btns, text="Write spoiler", command=self.do_spoiler)
+        b.pack(side="left", padx=2)
+        self._buttons.append(b)
+        b = ttk.Button(btns, text="Export JSON", command=self.do_export)
+        b.pack(side="left", padx=2)
+        self._buttons.append(b)
+        b = ttk.Button(btns, text="Patch from JSON…", command=self.do_patch)
+        b.pack(side="left", padx=2)
+        self._buttons.append(b)
 
-        pf = ttk.Frame(self); pf.pack(fill="x", pady=(4, 0))
+        pf = ttk.Frame(self)
+        pf.pack(fill="x", pady=(4, 0))
         self.prog_lbl = ttk.Label(pf, text="", anchor="w")
         self.prog_lbl.pack(fill="x")
         self.progress = ttk.Progressbar(pf, mode="determinate")
         self.progress.pack(fill="x")                     # full width of the tab
 
-        self.log = LogPanel(self); self.log.pack(fill="both", expand=True)
+        self.log = LogPanel(self)
+        self.log.pack(fill="both", expand=True)
 
     # -- helpers --
     FIELDS_OF_FUM_WARNING = (
@@ -457,18 +534,21 @@ class RandomizerTab(ttk.Frame):
     def _need_src(self):
         s = self.src.get().strip()
         if not s or not os.path.isfile(s):
-            messagebox.showwarning("No source ISO", "Pick a valid source ISO first."); return None
+            messagebox.showwarning("No source ISO", "Pick a valid source ISO first.")
+            return None
         return s
 
     def _need_out(self, src):
         """Validate the output path and make sure it can never be the source."""
         o = self.out.get().strip()
         if not o:
-            messagebox.showwarning("No output", "Choose where to save the randomized ISO."); return None
+            messagebox.showwarning("No output", "Choose where to save the randomized ISO.")
+            return None
         if self._same(src, o):
             messagebox.showerror("Same file",
                                  "Output ISO must be different from the source ISO.\n"
-                                 "The source is never modified."); return None
+                                 "The source is never modified.")
+            return None
         return o
 
     def _ns(self):
@@ -503,6 +583,11 @@ class RandomizerTab(ttk.Frame):
                                          or self.randomize_miasma_elements.get())
         ns.randomize_miasma_elements = self.randomize_miasma_elements.get()
         ns.stage_key_locks = self.stage_key_locks.get()
+        ns.cycle_select = self.cycle_select.get()
+        ns.skip_miasma_streams = self.skip_miasma_streams.get()
+        ns.all_in_one_radar = self.all_in_one_radar.get()
+        ns.gba_bonus_pool = self.gba_bonus_pool.get()
+        ns.gba_enemy_drops = self.gba_enemy_drops.get()
         ns.randomize_bosses = self.randomize_bosses.get()
         ns.randomize_world_zones = self.randomize_world_zones.get()
         ns.world_zone_icons = self.world_zone_icons.get()
@@ -512,7 +597,7 @@ class RandomizerTab(ttk.Frame):
         return ns
 
     def _make_copy(self, src, out, seed=None):
-        """Copy source -> output (the only file we write). Returns True on
+        """Copy source -> output (the only file written). Returns True on
         success. The output gets the Archipelago title logo and banner, its
         disc name showing `seed` when given."""
         if os.path.isfile(out) and not messagebox.askyesno(
@@ -521,7 +606,8 @@ class RandomizerTab(ttk.Frame):
         try:
             shutil.copy2(src, out)
         except Exception as e:
-            messagebox.showerror("Copy failed", str(e)); return False
+            messagebox.showerror("Copy failed", str(e))
+            return False
         self.log.write(f"Created {out}")
         try:
             import titlelogo
@@ -545,6 +631,8 @@ class RandomizerTab(ttk.Frame):
         if not apply:                                    # preview reads the source, writes nothing
             self.log.write(run_capture(rnd.cmd_run, src, self._ns(), False))
             return
+        if not iso_is_supported(src):
+            return
         out = self._need_out(src)
         ns = self._ns()                                  # once, so the disc name has this run's seed
         if not out or not self._make_copy(src, out, seed=ns.seed):
@@ -561,13 +649,15 @@ class RandomizerTab(ttk.Frame):
         changed - never the items. A spoiler file is written for later reference."""
         pool = rnd.build_pool(ns.pool)
         if not pool:
-            self.log.write(f"[error] empty pool for '{ns.pool}'"); return
+            self.log.write(f"[error] empty pool for '{ns.pool}'")
+            return
         found = rnd.dungeons_in_iso(out)
         if ns.dungeon:
             want = set(ns.dungeon)
             found = [d for d in found if d[0] in want]
         if not found:
-            self.log.write("[error] no matching dungeons"); return
+            self.log.write("[error] no matching dungeons")
+            return
         extra = ((1 if ns.rand_shops else 0) + (1 if ns.rand_prices else 0)
                  + (1 if ns.rand_bonus else 0)
                  + (1 if ns.mog_never_tired else 0)
@@ -578,6 +668,10 @@ class RandomizerTab(ttk.Frame):
                  + (1 if getattr(ns, "goblin_wall_always_visible", False) else 0)
                  + (1 if getattr(ns, "randomize_miasma_elements", False) else 0)
                  + (1 if getattr(ns, "stage_key_locks", False) else 0)
+                 + (1 if getattr(ns, "cycle_select", False) else 0)
+                 + (1 if getattr(ns, "skip_miasma_streams", False) else 0)
+                 + (1 if getattr(ns, "all_in_one_radar", False) else 0)
+                 + (1 if getattr(ns, "gba_bonus_pool", False) or getattr(ns, "gba_enemy_drops", False) else 0)
                  + (1 if getattr(ns, "randomize_bosses", False) else 0)
                  + (1 if getattr(ns, "randomize_world_zones", False) else 0)
                  + (1 if getattr(ns, "debug_menu", False) else 0))
@@ -614,7 +708,8 @@ class RandomizerTab(ttk.Frame):
                     only_by_disc = {d: rnd.chest_set_indices(ns.ref, script, d) for d in discs}
                     if not any(only_by_disc.values()):
                         self._q.put(("log", f"  {friendly}: skipped (no Game8 chest data)"))
-                        self._q.put(("value", i)); continue
+                        self._q.put(("value", i))
+                        continue
                 try:
                     changes = rnd.randomize_dungeon(out, script, discs, rng, ns.mode, pool,
                                                     ns.fill_empty, True, ns.rolls,
@@ -749,7 +844,7 @@ class RandomizerTab(ttk.Frame):
                         getattr(ns, "goblin_wall_always_visible", False))
                     if zone_plan is not None:
                         zone_plan = plan
-                    self._q.put(("log", "  progression logic: " + "; ".join(report)))
+                    self._q.put(("log", "  progression logic: " + ", ".join(report)))
                 except Exception as e:
                     logic_chain = None
                     self._q.put(("log", f"  [warning] progression logic: {e} - using plain random"))
@@ -795,6 +890,57 @@ class RandomizerTab(ttk.Frame):
                                         "D-pad Up/Down=select, A/B=toggle entry)"))
                 except Exception as e:
                     self._q.put(("log", f"  [error] debug menu: {e}"))
+                step += 1
+                self._q.put(("value", step))
+            if getattr(ns, "cycle_select", False):
+                # after the zone, Miasma and stage-key patches: it grows world.cft
+                self._q.put(("label", "Adding the cycle menu"))
+                try:
+                    import cycleselect
+                    cycleselect.apply(out)
+                    self._q.put(("log", "  cycle select: a dungeon's reached cycles can be picked when entering it"))
+                except Exception as e:
+                    self._q.put(("log", f"  [error] cycle select: {e}"))
+                step += 1
+                self._q.put(("value", step))
+            if getattr(ns, "skip_miasma_streams", False):
+                self._q.put(("label", "Patching the Miasma Stream skip"))
+                try:
+                    import miasmaskip
+                    miasmaskip.apply(out)
+                    self._q.put(("log", "  Miasma Stream skip: entering a stream goes straight to the other side"))
+                except Exception as e:
+                    self._q.put(("log", f"  [error] Miasma Stream skip: {e}"))
+                step += 1
+                self._q.put(("value", step))
+            if getattr(ns, "all_in_one_radar", False):
+                self._q.put(("label", "Patching the GBA radar"))
+                try:
+                    import gbaradar
+                    gbaradar.apply(out)
+                    self._q.put(("log", "  all-in-one GBA radar: map, exits, enemies and chests on one radar"))
+                except Exception as e:
+                    self._q.put(("log", f"  [error] all-in-one GBA radar: {e}"))
+                step += 1
+                self._q.put(("value", step))
+            try:
+                import gbanames
+                if gbanames.apply(out, log=lambda line: None):
+                    self._q.put(("log", "  GBA item names: the new items are named on the GBA too"))
+            except Exception as e:
+                self._q.put(("log", f"  [error] GBA item names: {e}"))
+            pool, drops = getattr(ns, "gba_bonus_pool", False), getattr(ns, "gba_enemy_drops", False)
+            if pool or drops:
+                # after the GBA item names: the pages' code goes after them
+                self._q.put(("label", "Adding the GBA loot pages"))
+                try:
+                    import gbaloot
+                    gbaloot.apply(out, pool, drops)
+                    self._q.put(("log", "  GBA loot pages: press A on the GBA radar ("
+                                        + ", ".join(n for on, n in ((pool, "bonus pool"), (drops, "enemy drops")) if on)
+                                        + ")"))
+                except Exception as e:
+                    self._q.put(("log", f"  [error] GBA loot pages: {e}"))
                 step += 1
                 self._q.put(("value", step))
             spoiler = os.path.splitext(out)[0] + " - spoiler.txt"
@@ -861,7 +1007,7 @@ class RandomizerTab(ttk.Frame):
 
     def do_export(self):
         src = self._need_src()
-        if not src:
+        if not src or not iso_is_supported(src):
             return
         out = os.path.splitext(src)[0] + " - chests.json"
         self.log.write(run_capture(rnd.cmd_export, src, out, src))
@@ -870,7 +1016,7 @@ class RandomizerTab(ttk.Frame):
 
     def do_patch(self):
         src = self._need_src()
-        if not src:
+        if not src or not iso_is_supported(src):
             return
         out = self._need_out(src)
         if not out:
@@ -899,18 +1045,21 @@ class FileToolsTab(ttk.Frame):
         self.disc = tk.StringVar(value="dvd/cft/river_0.cft")
         self.filt = tk.StringVar()
 
-        f = ttk.Frame(self); f.pack(fill="x", pady=2)
+        f = ttk.Frame(self)
+        f.pack(fill="x", pady=2)
         ttk.Label(f, text="ISO:", width=6).pack(side="left")
         ttk.Entry(f, textvariable=self.iso).pack(side="left", fill="x", expand=True, padx=4)
         ttk.Button(f, text="Browse…", command=lambda: browse_iso(self.iso)).pack(side="left")
 
-        gc = ttk.LabelFrame(self, text="Files inside the ISO (gciso)", padding=8)
+        gc =ttk.LabelFrame(self, text="Files inside the ISO (gciso)", padding=8)
         gc.pack(fill="x", pady=6)
-        r1 = ttk.Frame(gc); r1.pack(fill="x", pady=2)
+        r1 = ttk.Frame(gc)
+        r1.pack(fill="x", pady=2)
         ttk.Label(r1, text="Filter:").pack(side="left")
         ttk.Entry(r1, textvariable=self.filt, width=24).pack(side="left", padx=4)
         ttk.Button(r1, text="List files", command=self.do_list).pack(side="left")
-        r2 = ttk.Frame(gc); r2.pack(fill="x", pady=2)
+        r2 = ttk.Frame(gc)
+        r2.pack(fill="x", pady=2)
         ttk.Label(r2, text="Disc path:").pack(side="left")
         ttk.Entry(r2, textvariable=self.disc, width=34).pack(side="left", padx=4)
         ttk.Button(r2, text="Extract…", command=self.do_extract).pack(side="left", padx=2)
@@ -923,11 +1072,13 @@ class FileToolsTab(ttk.Frame):
         self.iid = tk.StringVar(value="0x0001")
         self.field = tk.StringVar(value="damage")
         self.fval = tk.StringVar()
-        c = ttk.Frame(it); c.pack(fill="x", pady=2)
+        c = ttk.Frame(it)
+        c.pack(fill="x", pady=2)
         ttk.Label(c, text="param.cfd:").pack(side="left")
         ttk.Entry(c, textvariable=self.cfd).pack(side="left", fill="x", expand=True, padx=4)
         ttk.Button(c, text="Browse…", command=self._browse_cfd).pack(side="left")
-        d = ttk.Frame(it); d.pack(fill="x", pady=2)
+        d = ttk.Frame(it)
+        d.pack(fill="x", pady=2)
         ttk.Label(d, text="Item id:").pack(side="left")
         ttk.Entry(d, textvariable=self.iid, width=10).pack(side="left", padx=4)
         ttk.Button(d, text="Show", command=self.item_show).pack(side="left", padx=2)
@@ -938,12 +1089,14 @@ class FileToolsTab(ttk.Frame):
         ttk.Entry(d, textvariable=self.fval, width=10).pack(side="left", padx=2)
         ttk.Button(d, text="Set", command=self.item_set).pack(side="left", padx=2)
 
-        self.log = LogPanel(self); self.log.pack(fill="both", expand=True)
+        self.log = LogPanel(self)
+        self.log.pack(fill="both", expand=True)
 
     def _iso(self):
         p = self.iso.get().strip()
         if not p or not os.path.isfile(p):
-            messagebox.showwarning("No ISO", "Pick a valid ISO."); return None
+            messagebox.showwarning("No ISO", "Pick a valid ISO.")
+            return None
         return p
 
     def _browse_cfd(self):
@@ -981,7 +1134,8 @@ class FileToolsTab(ttk.Frame):
     def _cfd(self):
         p = self.cfd.get().strip()
         if not p or not os.path.isfile(p):
-            messagebox.showwarning("No param.cfd", "Pick a param.cfd file (extract it from the ISO above)."); return None
+            messagebox.showwarning("No param.cfd", "Pick a param.cfd file (extract it from the ISO above).")
+            return None
         return p
 
     def item_show(self):
@@ -994,7 +1148,8 @@ class FileToolsTab(ttk.Frame):
         if not cfd:
             return
         if not self.fval.get().strip():
-            messagebox.showwarning("No value", "Enter a value to set."); return
+            messagebox.showwarning("No value", "Enter a value to set.")
+            return
         self.log.write(run_capture(itemtool.cmd_set, cfd, int(self.iid.get(), 0),
                                    self.field.get(), self.fval.get().strip()))
 
@@ -1004,25 +1159,114 @@ class FileToolsTab(ttk.Frame):
 # ---------------------------------------------------------------------------
 HELP = """FFCC Modding Toolkit
 
-The Randomizer never modifies your Source ISO. It always writes a separate
-Output ISO (you pick where) - so your original is safe by design.
+None of the tools ever change your Source ISO. They always write a separate
+Output ISO (you pick where), so your original is safe. Start from a clean,
+unmodified NTSC-US copy of the game.
+
+The patcher checks the Source ISO first. It has to be a plain ISO (not RVZ,
+WIA, GCZ, CISO, WBFS or NKit, which Dolphin can convert: right-click the game,
+"Convert File...", ISO) of the North American release (GCCE01, revision 0)
+that hasn't been patched yet. An ISO made by this patcher isn't accepted as a
+source, so always patch from your clean copy. If only some files differ from
+the clean game (for example after the Chest Editor), it asks before going on.
+
+WHICH TAB DO I NEED?
+  Play the normal game with a few improvements .......... Quality of Life
+  Play a randomized single-player game ................... Randomizer
+  Play an Archipelago (multiworld) seed .................. AP Patch
+  Hand-pick what each chest gives ........................ Chest Editor
+  Advanced: raw files, item stats, new items ............. File Tools,
+                                                           Custom Item
+
+QUALITY OF LIFE
+  The normal game with only the changes you tick - no chests, shops or bosses
+  are randomized.
+  1. Browse to your clean Source ISO. The Output ISO fills in as
+     "<source> - QoL.iso". Change it with "Save as…" if you like.
+  2. Tick what you want, then press "Create patched ISO".
+  Patches:
+    Other gender choice (on by default)  - adds "Other" at character creation,
+       with neutral wording wherever the game's text depends on gender.
+    Cycle select (on by default)  - on the world map, after you choose "Enter"
+       at a dungeon (the element menu still comes first), pick which cycle to
+       play: any cycle the dungeon has reached. Only asks once Cycle 1 is
+       cleared. "Never mind" (or B) goes back. The dungeon's real cycle is put
+       back when you leave, so replaying an old cycle costs nothing.
+    Skip Miasma Stream gates (off by default)  - entering a Miasma Stream
+       takes the caravan straight to the stop on the other side, whatever
+       element the chalice holds, so a wrong element can never leave you
+       stuck. You still choose to enter the stream as usual, then a black
+       loading screen of about 20-30 seconds takes you across. The Mystery
+       Miasma Stream to the Abyss still needs Unknown.
+    All-in-one GBA radar (off by default)  - the GBA radar shows the area
+       map, its exits, enemies and treasure chests together, instead of the
+       one kind the game hands out (in single player, picked by how you
+       brushed the Moogle). Needs a GBA in controller port 2 for single
+       player (in Dolphin: Controllers > Port 2 > "GBA (Integrated)", with a
+       GBA BIOS set), or each player's GBA in multiplayer.
+    GBA bonus pool pages / GBA enemy drops pages (off by default)  - press A
+       on the GBA radar (single player, GBA in port 2) to open pages. A turns
+       the page, B goes back to the radar.
+         Bonus pool: one page per bonus tier with the 4 items the end-of-
+         stage bonus offers from it on the dungeon's current cycle, and the
+         points it needs (single player multiplies your points by 1.35
+         first, so you need a little less).
+         Enemy drops: the artifacts this area's living enemies carry, each
+         with the kind of enemy carrying it. An enemy's drop is picked when
+         it appears, so this is what they will drop. The list is made when
+         the area loads, so enemies you defeat stay on it until the next area.
+    Mog never gets tired  - no stamina penalty for running with the chalice.
+    Keep picked-up artifacts  - every artifact you pick up in a dungeon is
+       kept, instead of choosing one at the end.
+    Always best bonus tier  - the end-of-dungeon bonus always gives the best
+       tier reached.
+    Skip the opening intro cutscene.
+    Skip Mio's questions  - EXPERIMENTAL: Meteor Parasite goes straight to Raem.
+    Goblin Wall on the world map from Year 1  - instead of from Year 2.
+    Lynari Desert north exit  - a quicksand pit at the north end of the first
+       area that drops you into the second.
+    Developer debug menu  - EXPERIMENTAL, see GAMEPLAY TWEAKS below.
+  Display and start:
+    Show enemy health  - a bar, the numbers (hp/max), or both, over each enemy.
+       Bosses are left out.
+    Show play timer  - a clock in the top-right corner. "play_time" shows the
+       save's play time. "speedrun" keeps its own count: it starts at 0 on New
+       Game or when a save is loaded and stops on the final blow to Memoira.
+       "manual" is the same count, started and stopped only by hand.
+       Speedrun controls (hold L + R + Z): D-pad Up pauses/resumes, Down
+       resets to 0, Left hides/shows the timer.
+    Starting location  - start a new game in another town (only towns where
+       Year 1 can be completed are offered). Fields of Fum: don't change your
+       chalice away from Fire until you're ready to cross back - you can get
+       stuck on that side.
+    Starting hearts  - 1 to 8 hearts for every tribe on a new character.
+  Dungeon shortcuts: open a dungeon's gates, bridges or puzzles from the start
+    (River Belle Path bridges, Goblin Wall gates, Mine of Cathuriges boxes,
+    Tida webs, Moschet Manor doors, Selepation Cave elevators, Conall Curach
+    log bridges, Rebena Te Ra gates, Lynari Desert's Unknown element puzzle).
+  Command line: py qolpatch.py list   /   py qolpatch.py apply <iso> <option>...
+    e.g. py qolpatch.py apply copy.iso other_gender cycle_select show_enemy_health=bar
 
 RANDOMIZER
   1. Browse to your Source ISO (your clean original - only ever read).
-  2. The Output ISO path auto-fills to "<source> - randomized.iso"; change it
+  2. The Output ISO path fills in as "<source> - randomized.iso". Change it
      with "Save as…" if you like. The output must be a different file.
   3. Choose options:
+       Seed  - the same seed and options give the same result. "Random each
+               run" picks a new one every time.
        Mode  - Any item anywhere, or keep each chest's original category.
        Rolls - One per cycle (each chest gives one item per cycle, the clearest),
                Per slot (more variety, several items possible per cycle), or
                One per chest (the chest always gives the same item).
-       Pool  - restrict to a category (artifacts, magicite, etc.).
+       Item pool - restrict to a category (artifacts, magicite, etc.).
        Dungeon - limit to a single dungeon.
        Max artifacts per cycle - never place more than this many artifacts in a
-               dungeon per cycle (default 4 = the player's carry limit); extra
+               dungeon per cycle (default 4 = the player's carry limit). Extra
                chests get a non-artifact item instead.
+       Also fill empty/placeholder slots - put items in loot slots that give
+               nothing in the real game.
        Randomize enemy drops too - chests and enemy drops share the same item
-               pool. Checked (default) randomizes both; uncheck to randomize
+               pool. Checked (default) randomizes both. Uncheck to randomize
                only the Game8-identified chests and leave enemy drops alone
                (dungeons without Game8 data are skipped in that mode).
        Keep required magicite obtainable - on by default. Leaves the magicite
@@ -1030,34 +1274,41 @@ RANDOMIZER
                Lich and Zombie Dragon (element stone THEN Life), Fire for
                Tida's spider webs. Untick for fully random magicite (those
                fights/paths may then be impossible). JSON: "_protect_required_
-               stones"; a JSON's own chest data is never changed by it.
-       Shops - each vanilla item in a shop is swapped for the same random item
-               in every stock tier, so stock seen in an early year stays on
-               sale as the shop's selection grows.
-       Shops - tick "Randomize shop inventories" to also shuffle what the towns
-               sell (Tipa, Alfitaria, Fields of Fum, Selkie Peddler, Shella,
-               Leuda, Smith). Choose all shops or just specific ones. Stock is
-               swapped only among items shops already sell, so prices stay valid.
-               "Randomize shop prices" shuffles the price tags among those items
-               (Bronze might cost what Mythril did); works with or without item
-               randomization.
+               stones". A JSON's own chest data is never changed by it.
+       Shops - "Randomize shop inventories" shuffles what the shops sell
+               (Tipa, Alfitaria, Fields of Fum, Selkie Peddler, Shella, Leuda,
+               Smith). Choose all shops or just some. Stock is swapped only
+               among items shops already sell, so prices stay valid, and each
+               item is swapped the same way in every stock tier, so stock seen
+               in an early year stays on sale as the selection grows.
+               "Randomize shop prices" shuffles the price tags among those
+               items (Bronze might cost what Mythril did). It works with or
+               without the stock shuffle.
+       Bonus Pools - randomizes the end-of-dungeon score rewards, using the
+               same Mode and Item pool. 13 of 14 dungeons have one (Mount
+               Vellenge has none in the real game).
   4. Preview (reads the source, writes nothing) shows the planned contents.
      Randomize! creates the Output ISO with a progress bar and, to avoid
      spoilers, only reports how many slots changed - not the items. A spoiler
-     .txt is still written next to the output if you want to peek later; it
+     .txt is still written next to the output if you want to peek later. It
      starts with the exact options you chose, then lists every chest and each
-     shop's stock.
+     shop's stock. "Write spoiler" writes one again for the output (or the
+     source when there's no output yet).
   Export JSON / Patch from JSON let you hand-edit exact contents: Export a
      template from the source -> edit the .json -> Patch (writes the output ISO,
      never the source).
 
 GAMEPLAY TWEAKS (Randomizer tab)
-  A few independent, single-purpose toggles - mix and match freely, and
-  independent of chest/item randomization:
+  Independent toggles - mix and match freely. The ones that don't randomize
+  anything are also on the Quality of Life tab.
     Mog never gets tired  - removes the stamina penalty for running while
        carrying the chalice.
+    Show trap visuals (on by default)  - for Archipelago: the status traps
+       the client sends play the game's own freeze/burn/poison/paralysis/slow
+       effects. Does nothing without the client.
     Starting location  - start a new game somewhere other than Tipa (only
-       towns where Year 1 is completable are offered).
+       towns where Year 1 is completable are offered). See the Fields of Fum
+       warning under QUALITY OF LIFE.
     Skip Meteor Parasite -> Mio questions -> Raem  - EXPERIMENTAL, may leave
        state the Mio questions would normally set unset.
     Skip the opening intro cutscene  - jumps straight past it on a new game.
@@ -1067,15 +1318,12 @@ GAMEPLAY TWEAKS (Randomizer tab)
        each of the 4 rotating streams needs per year. Also turns on "Show
        Goblin Wall..." above (guarantees every element is obtainable from
        Year 1).
-    Randomize post-stage bonus rewards (Bonus Pools section)  - randomizes
-       the end-of-dungeon score-reward pool, separate from chests/enemy
-       drops. 13 of 14 dungeons have one (Mount Vellenge has none in the
-       real game).
     Lock stages behind key artifacts  - EXPERIMENTAL, creates 14 new key
        artifacts (one per dungeon) placed via a randomized, always-solvable
-       chest chain (River Belle Path always stays open; chests only, never
-       enemy drops; no dungeon's key is ever in that same dungeon). All 13
-       gated dungeons check for their key on entry.
+       chest chain (River Belle Path always stays open, keys are in chests
+       only, never enemy drops, and no dungeon's key is ever in that same
+       dungeon). All 13 gated dungeons check for their key on entry, and the
+       boatmen won't take you to Mount Kilanda without its key.
        The 14 keys: River/Gob/Mine/Shroom/Tida/Manor/Lava/Fort/Selep/
        Sluice/Lynari/Conall/Rebena/Vellen Key, unlocking River Belle Path
        (never actually locked)/Goblin Wall/Mine of Cathuriges/Mushroom
@@ -1083,31 +1331,40 @@ GAMEPLAY TWEAKS (Randomizer tab)
        Cave/Veo Lu Sluice/Lynari Desert/Conall Curach/Rebena Te Ra/Mount
        Vellenge respectively - see the README for the full name/
        description table.
+    Cycle select  - the "Which cycle?" menu when entering a dungeon (see
+       QUALITY OF LIFE).
+    Skip Miasma Stream gates  - a stream takes the caravan straight across,
+       whatever the chalice holds (see QUALITY OF LIFE).
+    All-in-one GBA radar  - map, exits, enemies and chests on one GBA radar
+       (see QUALITY OF LIFE).
+    GBA bonus pool pages / GBA enemy drops pages  - press A on the GBA radar
+       to see the end-of-stage bonus items or the artifacts enemies carry
+       (see QUALITY OF LIFE).
     Randomize world-map loading zones  - EXPERIMENTAL, shuffles which dungeon
-       each world-map spot leads to (12 dungeons; Mount Kilanda and Mount
+       each world-map spot leads to (12 dungeons, Mount Kilanda and Mount
        Vellenge stay). A spot keeps its Miasma Stream gating and Myrrh-drop
-       elements; the dungeon's exits return the caravan to that spot. Stage-key
+       elements, and the dungeon's exits return the caravan to that spot. Stage-key
        locks follow the dungeons. Also turns on "Show Goblin Wall...".
        For Archipelago seeds, use the AP world's Shuffle Loading Zones option.
-       JSON: "_randomize_world_zones": true shuffles on patch; "_world_zones"
+       JSON: "_randomize_world_zones": true shuffles on patch. "_world_zones"
        maps each spot (named by its vanilla dungeon) to a dungeon from
-       "_world_zone_choices"; an entry naming the spot's own dungeon means
+       "_world_zone_choices". An entry naming the spot's own dungeon means
        "no preference". Needs a source ISO whose zones are still vanilla.
        Also show each spot's new dungeon building (on by default): the
        world-map building at each spot changes to the dungeon it now leads
        to. JSON: "_world_zone_icons": true/false.
     Use progression logic (on by default)  - the zone layout and the stage-key
        order are picked so every year has enough reachable dungeons (Miasma
-       Stream elements per year, the Jegon River crossing, the boats; the
+       Stream elements per year, the Jegon River crossing and the boats. The
        chalice keeps its element across the year change). Imported JSON files
        are applied as written unless they set "_progression_logic": true, and
        even then only their random parts follow the logic.
     Randomize bosses  - EXPERIMENTAL, shuffles the 13 dungeon bosses between
        boss arenas, each with its helpers and summons. Goblin King and Lich
-       stay home in a random shuffle; Mount Vellenge's final boss never moves.
+       stay home in a random shuffle, and Mount Vellenge's final boss never moves.
        A moved boss may play the old boss's entrance. Holy (Life + an element
        stone) stays obtainable wherever Lich and Zombie Dragon end up.
-       JSON: "_randomize_bosses": true shuffles on patch; "_bosses" maps each
+       JSON: "_randomize_bosses": true shuffles on patch. "_bosses" maps each
        dungeon to a boss (any of the names in "_boss_choices", Lich included:
        it brings its orbs, and its teleport points are estimated for the new
        arena). Entries naming a dungeon's own boss mean "no preference".
@@ -1121,36 +1378,58 @@ GAMEPLAY TWEAKS (Randomizer tab)
   as chest data, under its own `_`-prefixed key - export to see the exact
   key names and current state.
 
+AP PATCH (Archipelago)
+  Makes the ISO for one Archipelago seed. Each seed needs its own ISO.
+  1. Browse to your clean, unmodified vanilla ISO (never changed).
+  2. Choose your seed file: the .apffcc file from the multiworld host (older
+     .ffcc files work too), or the .zip it came in.
+  3. The output name fills in as "<source> - AP_<seed>_<time>.iso". Pick your
+     own with "Save as…" if you like.
+  4. Click "Patch for Archipelago". If the seed was made with a different
+     apworld version you're warned first. Patching anyway usually works, but
+     update the apworld or the patcher if anything looks wrong.
+  What the patch does:
+    - Your own items appear as their real models in chests. Items for other
+      players, traps and gil leave the chest empty, and the chest shows the
+      Archipelago logo. The client sends them. Artifacts, Spell Rings and
+      stage keys always come through the client so they can't be lost.
+    - Every option of the seed is applied (stage keys, Goblin Wall in Year 1,
+      Miasma Streams, loading zones, shortcuts, enemy health, play timer,
+      cycle select / cycle locks, starting stats, ...), so the seed file is
+      required.
+    - The title screen shows the Archipelago logo, and the disc name your
+      player name and seed, so it's easy to pick the right ISO in Dolphin.
+    - The Other gender choice is always added.
+  Then load the output ISO in Dolphin and connect the FFCC Archipelago client.
+
 CHEST EDITOR
-  Open ISO, pick a dungeon, Load. Each row is a chest; the three columns are
-  what it gives in cycle 1 / 2 / 3. Double-click a cell to change it. Save to ISO.
+  Open ISO, pick a dungeon, Load. Each row is a loot set, and the three columns
+  are what it gives in cycle 1 / 2 / 3. Double-click a cell to pick an item
+  (filter by category or search by name). "Game8 Reference" shows the
+  dungeon's chest list from Game8 to find a chest by its number. Save to ISO
+  writes the changes - use it on a copy.
 
 FILE TOOLS
-  List / Extract / Inject raw files in the ISO (inject must match the original
-  size). Item stats edits a param.cfd: extract dvd/cft/param.cfd here, edit a
-  field, then inject it back.
+  Files inside the ISO: List (with a filter) / Extract / Inject raw files by
+  their disc path (an injected file must match the original size).
+  Item stats edits a param.cfd: extract dvd/cft/param.cfd here, Show an item
+  id, Set a field, then inject the file back.
 
 CUSTOM ITEM
-  Repurpose an unused "Extra N" slot into your own item (edits a COPY in place).
-  - "List free slots" shows repurposable slots; pick one as the Slot id.
+  Repurpose an unused "Extra N" slot into your own item (edits the ISO in
+  place - point it at a COPY).
+  - "List free slots" shows repurposable slots. Pick one as the Slot id.
+    "Show slot" shows what a slot holds now.
   - Name: keep it short (~8 chars fit an Extra slot - names are written in place
-    so the file stays the same size).
+    so the file stays the same size). Description is the in-game help text
+    (blank leaves it as it is).
   - Looks like: a donor item whose 3D model / menu icon / type are copied (e.g.
-    Gold). Price sets the gil. Optionally place it in a shop and/or a dungeon's
-    first chest for testing. To have the randomizer/editor carry it, follow the
-    printed note (add it to ffcc_items NAMES, drop it from randomizer EXCLUDE).
-
-AP PATCH
-  Prepares a copy of your vanilla ISO for use with the FFCC Archipelago client.
-  1. Browse to your clean, unmodified vanilla ISO (source — never touched).
-  2. The output path auto-fills to "<source> - AP.iso"; change it with "Save as…".
-  3. Click "Patch for Archipelago". The tool copies the vanilla ISO, installs the
-     AP Item definition (0x162), then overwrites every game8-identified chest slot
-     with that item ID. The patched ISO is identical for every AP seed — the
-     Archipelago client delivers the actual randomized items via Dolphin memory
-     writes when each chest is opened at runtime.
-  You only need to run this once. Use the same AP-patched ISO for any future
-  Archipelago seeds; the client handles all per-seed item differences.
+    Gold). Model id (optional) uses another 3D model instead. Retexture
+    (optional) recolors the model from a PNG. Price sets the gil. Article is
+    the word ("a", "an" or "the") the game's messages put before its name.
+  - Optionally place it in a shop and/or a dungeon's first chest for testing.
+    To have the randomizer/editor carry it, follow the printed note (add it to
+    ffcc_items NAMES, drop it from randomizer EXCLUDE).
 
 Only DROPPABLE items go in chests (artifacts, magicite, phoenix down, materials,
 food, recipes). Equipment can't drop from a chest, so it is never offered.
@@ -1178,7 +1457,8 @@ class CustomItemTab(ttk.Frame):
         self._chest_map = {"(none)": None}
         self._chest_map.update({n: s for s, n in DUNGEONS})
 
-        f = ttk.Frame(self); f.pack(fill="x", pady=2)
+        f = ttk.Frame(self)
+        f.pack(fill="x", pady=2)
         ttk.Label(f, text="ISO:", width=6).pack(side="left")
         ttk.Entry(f, textvariable=self.iso).pack(side="left", fill="x", expand=True, padx=4)
         ttk.Button(f, text="Browse…", command=lambda: browse_iso(self.iso)).pack(side="left")
@@ -1188,33 +1468,39 @@ class CustomItemTab(ttk.Frame):
 
         ni = ttk.LabelFrame(self, text="New item (repurposes an unused 'Extra' slot)", padding=8)
         ni.pack(fill="x", pady=6)
-        r = ttk.Frame(ni); r.pack(fill="x", pady=2)
+        r = ttk.Frame(ni)
+        r.pack(fill="x", pady=2)
         ttk.Label(r, text="Slot id:", width=12).pack(side="left")
         ttk.Entry(r, textvariable=self.slot, width=10).pack(side="left", padx=4)
         ttk.Button(r, text="List free slots", command=self.do_listfree).pack(side="left", padx=2)
         ttk.Button(r, text="Show slot", command=self.do_show).pack(side="left", padx=2)
-        r = ttk.Frame(ni); r.pack(fill="x", pady=2)
+        r = ttk.Frame(ni)
+        r.pack(fill="x", pady=2)
         ttk.Label(r, text="Name:", width=12).pack(side="left")
         ttk.Entry(r, textvariable=self.name, width=20).pack(side="left", padx=4)
         ttk.Label(r, text="(short — about 8 chars fit an 'Extra' slot)",
                   foreground="#777").pack(side="left")
-        r = ttk.Frame(ni); r.pack(fill="x", pady=2)
+        r = ttk.Frame(ni)
+        r.pack(fill="x", pady=2)
         ttk.Label(r, text="Description:", width=12).pack(side="left")
         ttk.Entry(r, textvariable=self.desc, width=36).pack(side="left", padx=4)
-        ttk.Label(r, text="(in-game help text; blank = leave as-is)",
+        ttk.Label(r, text="(in-game help text, blank = leave as-is)",
                   foreground="#777").pack(side="left")
-        r = ttk.Frame(ni); r.pack(fill="x", pady=2)
+        r = ttk.Frame(ni)
+        r.pack(fill="x", pady=2)
         ttk.Label(r, text="Looks like:", width=12).pack(side="left")
         ttk.Combobox(r, textvariable=self.donor, width=18,
                      values=self._donor_list()).pack(side="left", padx=4)
         ttk.Label(r, text="(donor item — copies its model / icon / type)",
                   foreground="#777").pack(side="left")
-        r = ttk.Frame(ni); r.pack(fill="x", pady=2)
+        r = ttk.Frame(ni)
+        r.pack(fill="x", pady=2)
         ttk.Label(r, text="Model id:", width=12).pack(side="left")
         ttk.Entry(r, textvariable=self.model, width=10).pack(side="left", padx=4)
-        ttk.Label(r, text="(optional — override the 3D model, e.g. 0x37; blank = donor's)",
+        ttk.Label(r, text="(optional — override the 3D model, e.g. 0x37, blank = donor's)",
                   foreground="#777").pack(side="left")
-        r = ttk.Frame(ni); r.pack(fill="x", pady=2)
+        r = ttk.Frame(ni)
+        r.pack(fill="x", pady=2)
         ttk.Label(r, text="Retexture:", width=12).pack(side="left")
         ttk.Entry(r, textvariable=self.retex, width=30).pack(side="left", padx=4)
         ttk.Button(r, text="Browse…",
@@ -1223,7 +1509,8 @@ class CustomItemTab(ttk.Frame):
                   text="Retexture recolors the model's texture from a PNG. Note: every "
                        "item using that model is recolored — set a unique Model id first "
                        "to affect only this item.").pack(anchor="w")
-        r = ttk.Frame(ni); r.pack(fill="x", pady=2)
+        r = ttk.Frame(ni)
+        r.pack(fill="x", pady=2)
         ttk.Label(r, text="Price (gil):", width=12).pack(side="left")
         ttk.Entry(r, textvariable=self.gil, width=10).pack(side="left", padx=4)
         ttk.Label(r, text="Article:").pack(side="left", padx=(10, 0))
@@ -1232,7 +1519,8 @@ class CustomItemTab(ttk.Frame):
 
         pl = ttk.LabelFrame(self, text="Place for testing (optional)", padding=8)
         pl.pack(fill="x", pady=4)
-        r = ttk.Frame(pl); r.pack(fill="x", pady=2)
+        r = ttk.Frame(pl)
+        r.pack(fill="x", pady=2)
         ttk.Label(r, text="In shop:", width=12).pack(side="left")
         ttk.Combobox(r, textvariable=self.shop, width=18, state="readonly",
                      values=list(self._shop_map)).pack(side="left", padx=4)
@@ -1241,7 +1529,8 @@ class CustomItemTab(ttk.Frame):
                      values=list(self._chest_map)).pack(side="left", padx=4)
 
         ttk.Button(self, text="Add custom item", command=self.do_add).pack(anchor="w", pady=4)
-        self.log = LogPanel(self); self.log.pack(fill="both", expand=True)
+        self.log = LogPanel(self)
+        self.log.pack(fill="both", expand=True)
 
     def _donor_list(self):
         return sorted({n for n in ffcc_items.NAMES.values()
@@ -1250,14 +1539,16 @@ class CustomItemTab(ttk.Frame):
     def _iso(self):
         p = self.iso.get().strip()
         if not p or not os.path.isfile(p):
-            messagebox.showwarning("No ISO", "Pick a valid ISO (a copy)."); return None
+            messagebox.showwarning("No ISO", "Pick a valid ISO (a copy).")
+            return None
         return p
 
     def _slot(self):
         try:
             return int(self.slot.get(), 0)
         except ValueError:
-            messagebox.showwarning("Bad slot", "Slot id must look like 0x162."); return None
+            messagebox.showwarning("Bad slot", "Slot id must look like 0x162.")
+            return None
 
     def _browse_png(self, var):
         p = filedialog.askopenfilename(title="Choose a texture PNG",
@@ -1271,21 +1562,25 @@ class CustomItemTab(ttk.Frame):
             self.log.write(run_capture(customitem.cmd_list_free, iso))
 
     def do_show(self):
-        iso = self._iso(); sid = self._slot()
+        iso = self._iso()
+        sid = self._slot()
         if iso and sid is not None:
             self.log.write(run_capture(customitem.cmd_show, iso, sid))
 
     def do_add(self):
-        iso = self._iso(); sid = self._slot()
+        iso = self._iso()
+        sid = self._slot()
         if not iso or sid is None:
             return
         name = self.name.get().strip()
         if not name:
-            messagebox.showwarning("No name", "Enter an item name."); return
+            messagebox.showwarning("No name", "Enter an item name.")
+            return
         try:
             gil = int(self.gil.get()) if self.gil.get().strip() else None
         except ValueError:
-            messagebox.showwarning("Bad price", "Price must be a number."); return
+            messagebox.showwarning("Bad price", "Price must be a number.")
+            return
         shop = self._shop_map.get(self.shop.get())
         chest = self._chest_map.get(self.chest.get())
         if not messagebox.askyesno("Add item",
@@ -1299,10 +1594,12 @@ class CustomItemTab(ttk.Frame):
             try:
                 model = int(self.model.get().strip(), 0)
             except ValueError:
-                messagebox.showwarning("Bad model", "Model id must look like 0x37 or 55."); return
+                messagebox.showwarning("Bad model", "Model id must look like 0x37 or 55.")
+                return
         retex = self.retex.get().strip() or None
         if retex and not os.path.isfile(retex):
-            messagebox.showwarning("No PNG", "Retexture file not found."); return
+            messagebox.showwarning("No PNG", "Retexture file not found.")
+            return
 
         def work():
             info = customitem.add_custom_item(iso, sid, name, donor, gil, article,
@@ -1319,6 +1616,141 @@ class CustomItemTab(ttk.Frame):
             print(f"Tooling: add  NAMES[0x{sid:03x}] = \"{info['name']}\"  to ffcc_items.py and "
                   f"remove 0x{sid:03x} from randomizer.EXCLUDE for randomizer/editor support.")
         self.log.write(run_capture(work))
+
+
+# ---------------------------------------------------------------------------
+# Quality of Life tab: standalone patches, nothing randomized
+# ---------------------------------------------------------------------------
+class QolTab(ttk.Frame):
+    """Copies an ISO and applies only the ticked quality of life patches, so
+    the game plays as normal otherwise (see qolpatch.py)."""
+
+    DEFAULT_ON = {"other_gender", "cycle_select"}
+
+    def __init__(self, nb):
+        super().__init__(nb, padding=8)
+        self.src = tk.StringVar()
+        self.out = tk.StringVar()
+
+        ttk.Label(self, text=(
+            "Play the normal game with only the changes you pick: no chests, shops or "
+            "bosses are randomized.\nWorks on a clean ISO. The source is never changed."
+        ), justify="left", foreground="#444").pack(anchor="w", pady=(0, 8))
+
+        sf = ttk.Frame(self)
+        sf.pack(fill="x", pady=2)
+        ttk.Label(sf, text="Source ISO (never changed):", width=30).pack(side="left")
+        ttk.Entry(sf, textvariable=self.src).pack(side="left", fill="x", expand=True, padx=4)
+        ttk.Button(sf, text="Browse…", command=lambda: browse_iso(self.src)).pack(side="left")
+        self.src.trace_add("write", lambda *_: self._suggest_out())
+        of = ttk.Frame(self)
+        of.pack(fill="x", pady=2)
+        ttk.Label(of, text="Output ISO (patched copy):", width=30).pack(side="left")
+        ttk.Entry(of, textvariable=self.out).pack(side="left", fill="x", expand=True, padx=4)
+        ttk.Button(of, text="Save as…", command=self._browse_out).pack(side="left")
+
+        # option name -> its variable, which qolpatch.apply takes as they are
+        self.toggles = {}
+        box = ttk.LabelFrame(self, text="Patches", padding=8)
+        box.pack(fill="x", pady=6)
+        for key, (label, desc) in qolpatch.TOGGLES.items():
+            var = tk.BooleanVar(value=key in self.DEFAULT_ON)
+            self.toggles[key] = var
+            ttk.Checkbutton(box, text=label, variable=var).pack(anchor="w", pady=(4, 0))
+            if desc:
+                ttk.Label(box, text=desc, foreground="#a33" if desc.startswith("EXPERIMENTAL")
+                          else "#777", wraplength=620, justify="left").pack(anchor="w", padx=(20, 0))
+
+        self.choices = {}
+        ch = ttk.LabelFrame(self, text="Display and start", padding=8)
+        ch.pack(fill="x", pady=4)
+        for key, (label, values) in qolpatch.CHOICES.items():
+            row = ttk.Frame(ch)
+            row.pack(fill="x", pady=2)
+            ttk.Label(row, text=label + ":", width=20).pack(side="left")
+            var = tk.StringVar(value=values[0])
+            self.choices[key] = var
+            ttk.Combobox(row, state="readonly", width=16, values=values,
+                         textvariable=var).pack(side="left", padx=4)
+
+        sc = ttk.LabelFrame(self, text="Dungeon shortcuts (opened from the start)", padding=8)
+        sc.pack(fill="x", pady=4)
+        for key, label in qolpatch.SHORTCUT_LABELS.items():
+            var = tk.BooleanVar(value=False)
+            self.toggles[key] = var
+            ttk.Checkbutton(sc, text=label, variable=var).pack(anchor="w")
+
+        bf = ttk.Frame(self)
+        bf.pack(fill="x", pady=8)
+        self._btn = ttk.Button(bf, text="Create patched ISO", command=self.do_patch)
+        self._btn.pack(side="left")
+        self.log = LogPanel(self)
+        self.log.pack(fill="both", expand=True)
+
+    def _suggest_out(self, *_):
+        s = self.src.get().strip()
+        if s and not self.out.get().strip():
+            self.out.set(os.path.splitext(s)[0] + " - QoL.iso")
+
+    def _browse_out(self):
+        s = self.src.get().strip()
+        init = os.path.basename(os.path.splitext(s)[0] + " - QoL.iso") if s else "QoL.iso"
+        p = filedialog.asksaveasfilename(title="Save patched ISO as", defaultextension=".iso",
+                                         initialfile=init,
+                                         filetypes=[("Disc image", "*.iso *.gcm"), ("All", "*.*")])
+        if p:
+            self.out.set(p)
+
+    def do_patch(self):
+        src, out = self.src.get().strip(), self.out.get().strip()
+        if not src or not os.path.isfile(src):
+            messagebox.showwarning("No source ISO", "Pick a valid source ISO first.")
+            return
+        if not out:
+            messagebox.showwarning("No output", "Choose where to save the patched ISO.")
+            return
+        if os.path.normcase(os.path.abspath(src)) == os.path.normcase(os.path.abspath(out)):
+            messagebox.showerror("Same file", "Output ISO must be different from the source ISO.")
+            return
+        if not iso_is_supported(src):
+            return
+        opts = {k: v.get() for k, v in self.toggles.items()}
+        opts.update({k: v.get() for k, v in self.choices.items()})
+        if os.path.isfile(out) and not messagebox.askyesno(
+                "Overwrite output", f"{os.path.basename(out)} exists. Overwrite it?"):
+            return
+        try:
+            shutil.copy2(src, out)
+        except Exception as e:
+            messagebox.showerror("Copy failed", str(e))
+            return
+        self.log.write(f"Copied {os.path.basename(src)}  →  {os.path.basename(out)}")
+        self._btn.config(state="disabled")
+        self._q = queue.Queue()
+
+        def work():
+            """Runs off the UI thread and only talks to it through self._q
+            (None = finished)."""
+            try:
+                n = qolpatch.apply(out, opts, log=lambda s: self._q.put(s))
+                self._q.put(f"Done - {n} patch(es) applied to {os.path.basename(out)}.")
+            except Exception as e:
+                self._q.put(f"[error] {e}")
+            self._q.put(None)
+        threading.Thread(target=work, daemon=True).start()
+        self.after(100, self._poll)
+
+    def _poll(self):
+        """Runs on the UI thread: shows the worker's log lines until it's done."""
+        try:
+            while True:
+                msg = self._q.get_nowait()
+                if msg is None:
+                    self._btn.config(state="normal")
+                    return
+                self.log.write(msg)
+        except queue.Empty:
+            self.after(100, self._poll)
 
 
 # ---------------------------------------------------------------------------
@@ -1340,30 +1772,34 @@ class APPatchTab(ttk.Frame):
         ttk.Label(self, text=(
             "Creates an Archipelago-ready ISO from your seed's .ffcc file\n"
             "(or the .zip it came in, from the multiworld host).\n\n"
-            "Your own items appear as real item models in chests; items for other players\n"
+            "Your own items appear as real item models in chests. Items for other players\n"
             "show as AP Item, and the client delivers what you receive.  Artifacts, Spell\n"
             "Rings and stage keys always come through the client so they can't be lost.\n"
             "The seed's options (stage keys, Goblin Wall in Year 1, Miasma Streams, ...)\n"
             "come from the .ffcc file too, so the patch needs it."
         ), justify="left", foreground="#444").pack(anchor="w", pady=(0, 8))
 
-        sf = ttk.Frame(self); sf.pack(fill="x", pady=2)
+        sf = ttk.Frame(self)
+        sf.pack(fill="x", pady=2)
         ttk.Label(sf, text="Vanilla ISO (source, never changed):", width=36).pack(side="left")
         ttk.Entry(sf, textvariable=self.src).pack(side="left", fill="x", expand=True, padx=4)
         ttk.Button(sf, text="Browse…", command=self._browse_src).pack(side="left")
         self.src.trace_add("write", lambda *_: self._suggest_out())
 
-        of = ttk.Frame(self); of.pack(fill="x", pady=2)
+        of = ttk.Frame(self)
+        of.pack(fill="x", pady=2)
         ttk.Label(of, text="Output ISO (AP-patched copy):", width=36).pack(side="left")
         ttk.Entry(of, textvariable=self.out).pack(side="left", fill="x", expand=True, padx=4)
         ttk.Button(of, text="Save as…", command=self._browse_out).pack(side="left")
 
-        ff = ttk.Frame(self); ff.pack(fill="x", pady=2)
+        ff = ttk.Frame(self)
+        ff.pack(fill="x", pady=2)
         ttk.Label(ff, text="Seed file (.apffcc / .ffcc or its .zip):", width=36).pack(side="left")
         ttk.Entry(ff, textvariable=self.ffcc).pack(side="left", fill="x", expand=True, padx=4)
         ttk.Button(ff, text="Browse…", command=self._browse_ffcc).pack(side="left")
 
-        bf = ttk.Frame(self); bf.pack(fill="x", pady=8)
+        bf = ttk.Frame(self)
+        bf.pack(fill="x", pady=8)
         self._btn = ttk.Button(bf, text="Patch for Archipelago", command=self.do_patch)
         self._btn.pack(side="left")
         self._mode_lbl = ttk.Label(bf, text="  Choose your seed's .ffcc file",
@@ -1479,6 +1915,8 @@ class APPatchTab(ttk.Frame):
                                  "Output must be a different file from the source.\n"
                                  "The vanilla ISO is never modified.")
             return
+        if not iso_is_supported(src):
+            return
 
         ffcc = self.ffcc.get().strip()
         if not ffcc:
@@ -1538,7 +1976,12 @@ def main():
     root.minsize(700, 480)
     assets_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
     try:
-        root.iconbitmap(os.path.join(assets_dir, "icon.ico"))
+        if sys.platform == "win32":
+            root.iconbitmap(os.path.join(assets_dir, "icon.ico"))
+        else:
+            # Tk only takes .ico files on Windows
+            root._icon_img = tk.PhotoImage(file=os.path.join(assets_dir, "icon.png"))
+            root.iconphoto(True, root._icon_img)
     except Exception:
         pass  # missing/unsupported icon file - fall back to Tk's default
     apply_theme(root)
@@ -1567,6 +2010,8 @@ def main():
     nb.add(ScrollableTab(nb, FileToolsTab), text="File Tools")
 
     nb.add(ScrollableTab(nb, CustomItemTab), text="Custom Item")
+
+    nb.add(ScrollableTab(nb, QolTab), text="Quality of Life")
 
     nb.add(ScrollableTab(nb, APPatchTab), text="AP Patch")
 

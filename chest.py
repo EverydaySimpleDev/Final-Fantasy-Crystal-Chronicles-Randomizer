@@ -2,24 +2,24 @@
 chest.py - View/edit dungeon chest (treasure) tables in FFCC.
 
 Each dungeon's script `dvd/cft/<dungeon>_0.cft` has a `get_treasure` function
-containing a LOOT TABLE: many "treasure sets", each assigning one item to each
+containing a loot table: many "treasure sets", each assigning one item to each
 of the dungeon's chests. The game rolls a set per cycle. A chest record is a
 0x5b-byte struct: item ID is a push-int at offset +0 (bytes `03 00 00 <id16>`),
 chest index is the byte at +0x49 (1..N). Sets are runs whose +0x49 goes 1..N.
 
 Each set is category-homogeneous and its load-time setup is category-specific:
-swapping an item WITHIN its category is safe, but a wrong-category or out-of-range
-value can make the chest drop nothing OR crash the level on load. So edit slots
+swapping an item within its category is safe, but a wrong-category or out-of-range
+value can make the chest drop nothing or crash the level on load. So edit slots
 within their category. (Item IDs: see ffcc_items.py.)
 
 Workflow (fixed-size, re-inject in place):
-    python gciso.py extract "Hacked Rom.iso" dvd/cft/river_0.cft river_0.cft
-    python chest.py table river_0.cft                 # all sets x chests
-    python chest.py setslot river_0.cft 0x25a01 0x107 # edit ONE slot by file offset
-    python chest.py set river_0.cft 0x105 0x107       # bulk: every Stone of Cure -> Life
-    python gciso.py inject "Hacked Rom.iso" dvd/cft/river_0.cft river_0.cft
+    py gciso.py extract "Hacked Rom.iso" dvd/cft/river_0.cft river_0.cft
+    py chest.py table river_0.cft                 # all sets x chests
+    py chest.py setslot river_0.cft 0x25a01 0x107 # edit one slot by file offset
+    py chest.py set river_0.cft 0x105 0x107       # bulk: every Stone of Cure -> Life
+    py gciso.py inject "Hacked Rom.iso" dvd/cft/river_0.cft river_0.cft
 
-Note: the 0x5b stride / +0x49 index are known for River Belle Path. Other
+The 0x5b stride / +0x49 index are known for River Belle Path. Other
 dungeons may use a different record size (pass --stride / --idxoff to tune).
 """
 
@@ -100,7 +100,7 @@ def cmd_setslot(path, off, new):
     open(path, "wb").write(data)
     print(f"slot 0x{off:x}: 0x{old:04x} ({category(old)}) -> 0x{new:04x} ({category(new)})")
     if category(old) != category(new):
-        print("  WARNING: different category. Sets are category-homogeneous; a wrong-category"
+        print("  WARNING: different category. Sets are category-homogeneous, so a wrong-category"
               " value may drop nothing or CRASH the level on load. Prefer same-category items.")
 
 

@@ -10,9 +10,9 @@ Usage:
     python gciso.py extract-dol <iso> [out]             # pull the boot executable (main.dol)
     python gciso.py inject-dol  <iso> <file>            # write it back IN PLACE (same size)
 
-Re-injection is IN-PLACE: the replacement file must be EXACTLY the same size as
+Re-injection is in place: the replacement file must be exactly the same size as
 the file already on the disc, so nothing else has to move and the disc's file
-table (FST) stays valid. This pairs perfectly with tex.py's importer, which
+table (FST) stays valid. This pairs well with tex.py's importer, which
 re-packs textures at their original byte size.
 
   Typical texture-modding loop, straight from the ISO:
@@ -21,7 +21,7 @@ re-packs textures at their original byte size.
     python tex.py import world.tex          # -> world_repacked.tex (same size)
     python gciso.py inject "Hacked Rom.iso" dvd/menu/world.tex world_repacked.tex
 
-IMPORTANT: inject modifies the .iso directly. Keep a backup of your disc image.
+The inject command modifies the .iso directly, so keep a backup of your disc image.
 """
 
 import os
@@ -228,9 +228,11 @@ def _fst_entries(data):
         size = struct.unpack(">I", e[8:12])[0]
         name = nm(noff)
         while len(cur_end) > 1 and idx >= cur_end[-1]:
-            cur_end.pop(); path_stack.pop()
+            cur_end.pop()
+            path_stack.pop()
         if flag == 1:
-            cur_end.append(size); path_stack.append(path_stack[-1] + name + "/")
+            cur_end.append(size)
+            path_stack.append(path_stack[-1] + name + "/")
         else:
             files.append((path_stack[-1] + name, off, size, idx))
         idx += 1
@@ -244,7 +246,7 @@ def rebuild_iso(iso_in, edits, iso_out, align=0x20):
     byte at its original offset (no ripple). Lets files grow or shrink. The old
     data of edited files is left as harmless dead space.
 
-    Returns [(path, new_offset, new_size), ...]. Note: the image grows, so the
+    Returns [(path, new_offset, new_size), ...]. The image grows, so the
     result may exceed the 1.46 GB disc size - fine for emulators (Dolphin)."""
     with open(iso_in, "rb") as f:
         data = bytearray(f.read())
@@ -442,25 +444,30 @@ if __name__ == "__main__":
         cmd_list(iso, sys.argv[3] if len(sys.argv) > 3 else None)
     elif cmd == "extract":
         if len(sys.argv) < 4:
-            usage(); sys.exit(1)
+            usage()
+            sys.exit(1)
         cmd_extract(iso, sys.argv[3], sys.argv[4] if len(sys.argv) > 4 else None)
     elif cmd == "inject":
         if len(sys.argv) < 5:
-            usage(); sys.exit(1)
+            usage()
+            sys.exit(1)
         cmd_inject(iso, sys.argv[3], sys.argv[4])
     elif cmd == "extractall":
         if len(sys.argv) < 4:
-            usage(); sys.exit(1)
+            usage()
+            sys.exit(1)
         cmd_extractall(iso, sys.argv[3], sys.argv[4] if len(sys.argv) > 4 else None)
     elif cmd == "rebuild":
         if len(sys.argv) < 5:
-            usage(); sys.exit(1)
+            usage()
+            sys.exit(1)
         cmd_rebuild(iso, sys.argv[3], sys.argv[4], sys.argv[5] if len(sys.argv) > 5 else None)
     elif cmd == "extract-dol":
         cmd_extract_dol(iso, sys.argv[3] if len(sys.argv) > 3 else None)
     elif cmd == "inject-dol":
         if len(sys.argv) < 4:
-            usage(); sys.exit(1)
+            usage()
+            sys.exit(1)
         cmd_inject_dol(iso, sys.argv[3])
     else:
         usage()

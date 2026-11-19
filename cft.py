@@ -201,7 +201,7 @@ def _code_of(block):
 
 def code_abs_offset(path, block):
     """Return the absolute file offset of `block`'s CODE data (i.e. offset 0 of
-    what disasm()/_code_of() operate on). NOTE: `block.bin`'s own byte content
+    what disasm()/_code_of() operate on). `block.bin`'s own byte content
     is NOT contiguous with `block.off + 16` - recognized child subtags (NAME/
     INFO/VAL/...) are parsed out as proper Nodes first and are NOT included in
     `.bin`, so an index within `.bin` does not correspond to `block.off + 16 +

@@ -7,11 +7,11 @@ stores vertices as int16 with a power-of-two scale (1/2^q from the QUAN tag) and
 UVs as int16/4096, the int16 -> float -> int16 trip is exact, so an unedited
 round-trip is byte-identical and an edit changes only the moved data.
 
-LIMITATION: topology must be UNCHANGED - same vertex / UV / normal COUNT and
-ORDER as the export (the model's faces/display-lists still reference the original
+Limitation: topology must be unchanged - same vertex / UV / normal count and
+order as the export (the model's faces/display-lists still reference the original
 indices). So: move/scale/morph existing vertices = OK, add/remove/reorder vertices
 or new meshes = not supported by `import` (use `newmesh`). In Blender, import/export
-OBJ with matching axis settings (Forward Z, Up Y) and DON'T let it merge/reorder
+OBJ with matching axis settings (Forward Z, Up Y) and don't let it merge/reorder
 vertices ("Keep Vertex Order").
 
 Usage:
@@ -48,7 +48,7 @@ def _meshes(root):
 
 def _clamp(v, what, warns):
     if v < I16_MIN or v > I16_MAX:
-        warns.append(f"{what} {v} out of int16 range; clamped")
+        warns.append(f"{what} {v} out of int16 range, clamped")
         return max(I16_MIN, min(I16_MAX, v))
     return v
 
@@ -66,7 +66,7 @@ def export(chm_path, out_dir=None):
         name = _mesh_name(m, f"mesh{i}")
         vert, norm, uv = m.find(b"VERT"), m.find(b"NORM"), m.find(b"UV  ")
         lines = [f"# FFCC mesh '{name}' from {os.path.basename(chm_path)} "
-                 f"(scale 1/{round(1/scale)}); keep vertex order on re-export\n",
+                 f"(scale 1/{round(1/scale)}). Keep vertex order on re-export\n",
                  f"o {name}\n"]
         if vert:
             for x, y, z in chmio.read_triples(vert):
@@ -132,7 +132,7 @@ def import_obj(chm_path, obj_path, out_path=None):
             continue
         vs, vns, vts = _parse_obj(src)
         vert, norm, uv = m.find(b"VERT"), m.find(b"NORM"), m.find(b"UV  ")
-        # counts MUST match (topology preserved)
+        # counts must match (topology preserved)
         for tag_, got, name_ in ((vert, len(vs), "vertices"), (uv, len(vts), "UVs"),
                                  (norm, len(vns), "normals")):
             if tag_ is not None and got and got != _count(tag_, name_):
@@ -160,7 +160,7 @@ def _count(node, kind):
 
 
 # --------------------------------------------------------------------------- #
-# new-topology import (rebuilds a mesh's geometry AND faces from an OBJ)
+# new-topology import (rebuilds a mesh's geometry and faces from an OBJ)
 # --------------------------------------------------------------------------- #
 def _parse_obj_full(path):
     v, vn, vt, faces = [], [], [], []
@@ -187,7 +187,7 @@ def _parse_obj_full(path):
 
 
 def import_mesh(chm_path, obj_path, out_path=None, mesh_index=0, strips=False, flip=False, vscale=1.0, flat=False):
-    """Rebuild ONE mesh's geometry AND topology from an OBJ (vertices, UVs,
+    """Rebuild one mesh's geometry and topology from an OBJ (vertices, UVs,
     normals, and faces). Unlike import_obj this allows a different vertex/face
     count - it writes new VERT/NORM/UV arrays and a fresh triangle-list DLST.
     The CHM (and ISO) will change size: use `gciso.py rebuild` to inject it."""
@@ -247,7 +247,8 @@ def _roundtrip(chm_path):
 
 def main():
     if len(sys.argv) < 3:
-        print(__doc__.strip()); sys.exit(1)
+        print(__doc__.strip())
+        sys.exit(1)
     cmd = sys.argv[1]
     if cmd == "export":
         out, written = export(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else None)
@@ -272,7 +273,8 @@ def main():
         print("Size likely changed - inject with: py gciso.py rebuild <iso> <disc_path> "
               "<new.chm> <out.iso>")
     else:
-        print(__doc__.strip()); sys.exit(1)
+        print(__doc__.strip())
+        sys.exit(1)
 
 
 if __name__ == "__main__":

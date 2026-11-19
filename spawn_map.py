@@ -60,7 +60,7 @@ DEFAULT_CFT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..",
 RECORD_LEN = {"SPAWN": 13, "SPAWN_TBOX": 8, "SPAWN_HOT_SPOT": 11}
 
 # Monster ID -> name.
-# Some entries are unconfirmed/commentary as noted.
+# Names with a "?" are uncertain, and some entries carry a short note.
 MONSTER_NAMES = {
     0x00: "None?",
     0x01: "Flan",
@@ -271,14 +271,17 @@ def _records(path, ordinal):
     pushes, signed, recs = [], [], []
     for off, op, arg in cft.disasm(code):
         if op in (3, 5):
-            pushes.append((off, arg)); signed.append(arg)
+            pushes.append((off, arg))
+            signed.append(arg)
         elif op == 4:
             v = round(struct.unpack(">f", struct.pack(">i", arg))[0], 3)
-            pushes.append((off, v)); signed.append(v)
+            pushes.append((off, v))
+            signed.append(v)
         elif op == 0x2B and signed and isinstance(signed[-1], float):
             signed[-1] = -signed[-1]
         elif op in (0, 1, 2):
-            pushes.append((off, "?")); signed.append("?")
+            pushes.append((off, "?"))
+            signed.append("?")
         elif op == 0x0a:
             if (arg & 0xFFFF) == target and len(pushes) >= reclen:
                 rec = pushes[-reclen:]
@@ -543,7 +546,9 @@ if __name__ == "__main__":
         # optional trailing --axes x,-z,y  (to match a map mesh's orientation)
         axes = BLENDER_AXES
         if "--axes" in args:
-            i = args.index("--axes"); axes = args[i + 1]; args = args[:i] + args[i + 2:]
+            i = args.index("--axes")
+            axes = args[i + 1]
+            args = args[:i] + args[i + 2:]
         if os.path.isdir(args[1]):
             if len(args) < 4:
                 sys.exit("usage: spawn_map.py blender <cft_dir> <dungeon prefix> <out.py>")
@@ -553,7 +558,8 @@ if __name__ == "__main__":
             paths, outpath = [args[1]], args[2]
         with open(outpath, "w", encoding="utf-8") as f:
             f.write(blender_script(paths, axes))
-        nm = sum(len(monsters(p)) for p in paths); nc = sum(len(chests(p)) for p in paths)
+        nm = sum(len(monsters(p)) for p in paths)
+        nc = sum(len(chests(p)) for p in paths)
         print(f"wrote {outpath}: {nm} monster and {nc} chest label(s) from {len(paths)} area file(s)")
     elif cmd == "export":
         cft_dir = args[1] if len(args) > 1 else DEFAULT_CFT_DIR

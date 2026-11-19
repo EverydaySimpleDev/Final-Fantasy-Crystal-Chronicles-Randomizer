@@ -83,7 +83,7 @@ class App:
 
         # --- help line ---
         ttk.Label(master, padding=(8, 2), foreground="#444",
-                  text="Each row is a loot set; columns are what it gives in cycle 1 / 2 / 3. "
+                  text="Each row is a loot set, and the columns are what it gives in cycle 1 / 2 / 3. "
                        "Green = Chest, red = Monster (enemy drop), purple = Magicite, "
                        "tan = Gathering. Double-click a cell to change it.").pack(fill="x")
 
@@ -121,31 +121,36 @@ class App:
             with open(p, "rb") as f:
                 gid, _ = gciso.parse_fst(f)
         except Exception as e:
-            messagebox.showerror("ISO error", str(e)); return
+            messagebox.showerror("ISO error", str(e))
+            return
         self.iso = p
         self.iso_lbl.config(text=f"{os.path.basename(p)}  [{gid}]")
         self.status.config(text="ISO loaded. Pick a dungeon and click Load.")
 
     def load(self):
         if not self.iso:
-            messagebox.showwarning("No ISO", "Open an ISO first."); return
+            messagebox.showwarning("No ISO", "Open an ISO first.")
+            return
         sel = self.dsel.current()
         if sel < 0:
-            messagebox.showwarning("No dungeon", "Choose a dungeon."); return
+            messagebox.showwarning("No dungeon", "Choose a dungeon.")
+            return
         script = lootcft.DUNGEONS[sel][0]
         try:
             with open(self.iso, "rb") as f:
                 _, files = gciso.parse_fst(f)
                 discs = rnd._area_discs(files, script)   # all area files _0, _1, ...
                 if not discs:
-                    messagebox.showerror("Not found", f"No {script}_*.cft in ISO"); return
+                    messagebox.showerror("Not found", f"No {script}_*.cft in ISO")
+                    return
             self.dungeon = g8.SCRIPT_TO_DUNGEON.get(script)
             self.areas = []
             for disc in discs:
                 with open(self.iso, "rb") as f:
                     _, files = gciso.parse_fst(f)
                     _, off, size = gciso.find_file(files, disc)[0]
-                    f.seek(off); data = f.read(size)
+                    f.seek(off)
+                    data = f.read(size)
                 cft = os.path.join(tempfile.gettempdir(), os.path.basename(disc))
                 with open(cft, "wb") as o:
                     o.write(data)
@@ -181,7 +186,8 @@ class App:
         # numbered chests first, ordered by Game8 chest number
         for cn, (ai, si) in sorted((cn, k) for k, cn in self.chest_of.items()):
             t = f"Chest {cn}"
-            self.rows.append((ai, si, t, "chest")); self.title_of[(ai, si)] = t
+            self.rows.append((ai, si, t, "chest"))
+            self.title_of[(ai, si)] = t
         # everything else, grouped by kind (Monster / Magicite / Gathering)
         buckets = {"monster": [], "magicite": [], "gathering": []}
         for ai, a in enumerate(self.areas):
@@ -194,7 +200,8 @@ class App:
         for kind in ("monster", "magicite", "gathering"):
             for n, (ai, si) in enumerate(buckets[kind], 1):
                 t = f"{names[kind]} {n}"
-                self.rows.append((ai, si, t, kind)); self.title_of[(ai, si)] = t
+                self.rows.append((ai, si, t, kind))
+                self.title_of[(ai, si)] = t
 
     # ---- table rendering --------------------------------------------------
     def _cycle_names(self, s, cyc):
@@ -202,7 +209,8 @@ class App:
         seen, names = set(), []
         for ci, (_, v) in enumerate(s):
             if cyc in cm[ci] and v not in seen:
-                seen.add(v); names.append(items.name(v))
+                seen.add(v)
+                names.append(items.name(v))
         return " / ".join(names) if names else "—"
 
     def refresh(self):
@@ -232,13 +240,15 @@ class App:
 
         win = tk.Toplevel(self.root)
         win.title(f"{title} — Cycle {cyc + 1}")
-        win.transient(self.root); win.grab_set()
+        win.transient(self.root)
+        win.grab_set()
         ttk.Label(win, padding=(10, 8, 10, 2), justify="left",
                   text=f"{title} · Cycle {cyc + 1}\nCurrently: {cur_txt}").pack(anchor="w")
         ttk.Label(win, padding=(10, 0), foreground="#444",
                   text="Pick the item this chest gives in this cycle:").pack(anchor="w")
 
-        filt = ttk.Frame(win, padding=(10, 6)); filt.pack(fill="x")
+        filt = ttk.Frame(win, padding=(10, 6))
+        filt.pack(fill="x")
         ttk.Label(filt, text="Category:").pack(side="left")
         catvar = tk.StringVar(value=items.category(cur_ids[0]) if cur_ids else "All")
         catcb = ttk.Combobox(filt, state="readonly", width=12, values=CATEGORIES,
@@ -246,13 +256,16 @@ class App:
         catcb.pack(side="left", padx=4)
         ttk.Label(filt, text="Search:").pack(side="left", padx=(10, 0))
         searchvar = tk.StringVar()
-        se = ttk.Entry(filt, textvariable=searchvar, width=18); se.pack(side="left", padx=4)
+        se = ttk.Entry(filt, textvariable=searchvar, width=18)
+        se.pack(side="left", padx=4)
 
-        body = ttk.Frame(win, padding=(10, 0)); body.pack(fill="both", expand=True)
+        body = ttk.Frame(win, padding=(10, 0))
+        body.pack(fill="both", expand=True)
         lb = tk.Listbox(body, height=15, width=46, activestyle="none")
         sb = ttk.Scrollbar(body, orient="vertical", command=lb.yview)
         lb.configure(yscrollcommand=sb.set)
-        lb.pack(side="left", fill="both", expand=True); sb.pack(side="left", fill="y")
+        lb.pack(side="left", fill="both", expand=True)
+        sb.pack(side="left", fill="y")
 
         state = {"filtered": []}
 
@@ -265,7 +278,9 @@ class App:
                 lb.insert("end", l)
             for idx, (i, _) in enumerate(state["filtered"]):
                 if cur_ids and i == cur_ids[0]:
-                    lb.selection_set(idx); lb.see(idx); break
+                    lb.selection_set(idx)
+                    lb.see(idx)
+                    break
 
         def apply():
             sel = lb.curselection()
@@ -277,7 +292,9 @@ class App:
             for ci in cyc_slots:
                 off, old = s[ci]
                 if new != old:
-                    s[ci][1] = new; area_dirty[off] = new; changed += 1
+                    s[ci][1] = new
+                    area_dirty[off] = new
+                    changed += 1
             if changed:
                 self.refresh()
                 self.save_btn.config(state="normal")
@@ -290,7 +307,8 @@ class App:
         lb.bind("<Double-1>", lambda e: apply())
         repop()
 
-        btns = ttk.Frame(win, padding=10); btns.pack(fill="x")
+        btns = ttk.Frame(win, padding=10)
+        btns.pack(fill="x")
         ttk.Button(btns, text="Set item", command=apply).pack(side="right")
         ttk.Button(btns, text="Cancel", command=win.destroy).pack(side="right", padx=6)
         se.focus_set()
@@ -299,7 +317,8 @@ class App:
     def show_ref(self):
         if not self.dungeon:
             messagebox.showinfo("Game8 reference",
-                                "Load a dungeon first (or no Game8 data for it)."); return
+                                "Load a dungeon first (or no Game8 data for it).")
+            return
         win = tk.Toplevel(self.root)
         win.title(f"Game8 chest reference — {self.dungeon}")
         txt = tk.Text(win, width=80, height=28, wrap="word")
@@ -310,7 +329,8 @@ class App:
     def save(self):
         n = sum(len(d) for d in self.dirty.values())
         if not n:
-            messagebox.showinfo("Nothing to save", "No edits pending."); return
+            messagebox.showinfo("Nothing to save", "No edits pending.")
+            return
         n_areas = sum(1 for d in self.dirty.values() if d)
         if not messagebox.askyesno("Write to ISO",
                 f"Apply {n} change(s) across {n_areas} area file(s)\n"
@@ -328,8 +348,9 @@ class App:
                     _, files = gciso.parse_fst(f)
                     _, off, size = gciso.find_file(files, a["disc"])[0]
                     if len(data) != size:
-                        raise ValueError(f"{a['disc']}: size changed; aborting")
-                    f.seek(off); f.write(data)
+                        raise ValueError(f"{a['disc']}: size changed, aborting")
+                    f.seek(off)
+                    f.write(data)
             self.dirty.clear()
             self.save_btn.config(state="disabled")
             self.status.config(text=f"Saved {n} change(s) to ISO.")

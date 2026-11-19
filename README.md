@@ -25,6 +25,10 @@ One window with tabs for everything:
 - **File Tools** — extract / inject / list files in the ISO, and edit item
   stats in `param.cfd`.
 - **Custom Item** — repurpose an unused "Extra N" item slot into your own item.
+- **Quality of Life** — the game as normal with only the patches you tick (Other
+  gender, Cycle select, enemy health, play timer, all-in-one GBA radar, GBA bonus
+  pool and enemy drops pages, dungeon shortcuts, ...), nothing
+  randomized. Command line: `py qolpatch.py apply <iso> <option> ...`.
 - **AP Patch** — one-time patch to prep a vanilla ISO for the Archipelago client.
 - **Help** — a quick in-app guide.
 
@@ -37,6 +41,10 @@ The command-line tools below do the same things if you prefer a terminal.
   place. Keep your clean original as a backup (and as a `--ref` for chest
   numbering).
 - Quote any path that contains spaces.
+- Only the North American release is supported (GCCE01, revision 0), as a
+  plain ISO. The GUI and `qolpatch.py` check the source first and refuse other
+  regions, compressed images (RVZ, WIA, GCZ, CISO, WBFS, NKit) and ISOs that
+  were already patched. `py isocheck.py <iso>` runs the same check.
 
 ## What can go in a chest
 
@@ -356,7 +364,7 @@ py customitem.py show "copy.iso" 0x162
   `ffcc_items.py` and remove the id from `randomizer.EXCLUDE` (the tool prints the
   exact lines). Limits: reusing an existing model/icon is easy. A brand-new model
   or a new behaviour type needs graphics/executable work.
-- For the full byte-exact recipe (what actually makes something an "artifact"
+- For the full recipe (what actually makes something an "artifact"
   vs. a plain item, the stat-effect family codes, and which item-model IDs
   are already used vs. free) see `Documentation/Adding Custom Items and
   Artifacts.md` and `Documentation/Item Model Reference.md`.
@@ -381,8 +389,8 @@ py objimport.py roundtrip "w001_root.chm"               # self-test (byte-identi
 py gciso.py inject "copy.iso" dvd/char/wep/w001/w001_root.chm "w001_root_new.chm"
 ```
 
-- `chmio.py` is the byte-exact container reader/writer underneath (it writes
-  all 3,864 model/texture files back byte-identical).
+- `chmio.py` is the container reader/writer underneath (all 3,864
+  model/texture files round-trip unchanged).
   `import` is topology-preserving (move/scale/morph existing vertices only). To put
   in a **completely new mesh** (different vertex/face count), use `newmesh`:
 
@@ -469,6 +477,30 @@ py -m PyInstaller FFCC-Randomizer.spec --noconfirm
 The result is `dist/FFCC-Randomizer.exe` — one self-contained file. Hand that
 to anyone. They just need their own legally-obtained ISO. `build/` and `dist/`
 are gitignored (regenerate them anytime by rerunning the command above).
+
+**Linux:** PyInstaller only builds for the system it runs on, so the Linux
+version is built on Linux with the same spec. It needs Python with Tkinter
+(on Debian/Ubuntu: `sudo apt install python3-tk python3-venv`):
+
+```bash
+python3 -m venv .venv && . .venv/bin/activate
+pip install pyinstaller pillow numpy
+pyinstaller FFCC-Randomizer.spec --noconfirm
+```
+
+The result is `dist/FFCC-Randomizer` (run it with `./FFCC-Randomizer`). A Linux
+build only runs on systems whose C library is at least as new as the one it
+was built on, so build releases on an older distribution.
+
+**Both at once:** `.github/workflows/build.yml` builds the Windows exe and the
+Linux version (on Ubuntu 22.04) on GitHub. Start it from the repository's
+Actions tab with "Run workflow", or push a tag like `v0.4.0` to also attach
+both files to that release.
+
+The GBA loot pages (`gbaloot.py`) are C code in `gbacode/`. Their machine
+code is checked in as `gbaloot_code.py`, so building the exe doesn't need a
+compiler. After changing the C files, rebuild it with `py gbacode/build.py`
+(needs devkitPro's devkitARM and devkitPPC).
 
 ---
 

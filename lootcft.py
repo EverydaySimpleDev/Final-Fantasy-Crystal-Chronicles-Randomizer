@@ -11,9 +11,9 @@ STRIDE = 0x5b
 IDXOFF = 0x42
 SETLEN = 7
 
-# script basename -> friendly dungeon name. NOTE: each
-# dungeon spans several area files dvd/cft/<script>_0.cft, _1, _2 ... - the
-# randomizer processes them all. (`ruin` is Tida, not Rebena. `city` is the real
+# script basename -> friendly dungeon name. Each dungeon spans several area
+# files dvd/cft/<script>_0.cft, _1, _2 ... and the randomizer processes them
+# all. (`ruin` is Tida, not Rebena. `city` is the real
 # Rebena Te Ra, `gigas`=Moschet (Gigas Lord), `fort`=Daemon's Court.)
 DUNGEONS = [
     ("river",  "River Belle Path"),
@@ -115,7 +115,7 @@ def find_item_slots(cft_path, valid=None):
 
 def group_runs(slots):
     """Group (offset, id) slots into contiguous 0x5b-stride runs for display.
-    NOTE: a contiguous run can span several real chests packed back-to-back -
+    A contiguous run can span several real chests packed back-to-back, so
     use find_sets() for chest-accurate grouping. Returns list of lists."""
     runs, cur = [], []
     for off, v in slots:

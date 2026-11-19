@@ -6,15 +6,15 @@ Each item is a 72-byte (0x48) record. The table holds 1205 entries (IDs
 (e.g. 0x0001 Copper Sword, 0x0125 Phoenix Down, 0x0100 Stone of Fire).
 
 Workflow (param.cfd is fixed-size, so edits re-inject in place):
-    python gciso.py extract "Hacked Rom.iso" dvd/cft/param.cfd param.cfd
-    python items.py show param.cfd 0x0001
-    python items.py set  param.cfd 0x0001 damage 99
-    python gciso.py inject "Hacked Rom.iso" dvd/cft/param.cfd param.cfd
+    py gciso.py extract "Hacked Rom.iso" dvd/cft/param.cfd param.cfd
+    py items.py show param.cfd 0x0001
+    py items.py set  param.cfd 0x0001 damage 99
+    py gciso.py inject "Hacked Rom.iso" dvd/cft/param.cfd param.cfd
 
 Commands:
-    python items.py show <param.cfd> <id>
-    python items.py list <param.cfd> [start] [count]
-    python items.py set  <param.cfd> <id> <field|0xOFF[:1|2]> <value>
+    py items.py show <param.cfd> <id>
+    py items.py list <param.cfd> [start] [count]
+    py items.py set  <param.cfd> <id> <field|0xOFF[:1|2]> <value>
 
 Named fields (offset,size): type(0,2) model(2,2) equiptype(4,1)
     equipability(5,1) value(6,2) status/bonus(8,2) focus/spell(10,2)
@@ -120,7 +120,8 @@ def parse_id(s):
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        print(__doc__.strip()); sys.exit(1)
+        print(__doc__.strip())
+        sys.exit(1)
     cmd, path = sys.argv[1].lower(), sys.argv[2]
     if cmd == "show":
         cmd_show(path, parse_id(sys.argv[3]))
@@ -131,4 +132,5 @@ if __name__ == "__main__":
     elif cmd == "set":
         cmd_set(path, parse_id(sys.argv[3]), sys.argv[4], sys.argv[5])
     else:
-        print(__doc__.strip()); sys.exit(1)
+        print(__doc__.strip())
+        sys.exit(1)

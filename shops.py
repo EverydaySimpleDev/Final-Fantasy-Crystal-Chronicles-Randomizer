@@ -9,7 +9,7 @@ function, as a run of push-int item IDs - one per shop slot. The slot layout is
     push 0  x5        (03 00 00 00 00)   padding/args
     ... call shop-add
 
-Prices are NOT stored here - the engine derives them from the item via
+Prices are not stored here - the engine derives them from the item via
 shopRateCalc - so editing a shop is just replacing the 16-bit item id, exactly
 like a chest slot in lootcft.py. This module mirrors lootcft's find/apply API.
 """
@@ -36,9 +36,10 @@ _SLOT_RE = re.compile(rb"\x03\x00\x00\x00\x01\x03\x00\x00(..)\x03\x00\x00\x00\x0
 
 
 def _shopstart_region(data):
-    """(start, end) file offsets of the shopStart function's CODE within `data`,
-    or None. We locate the function via the cft parser then find its (unique)
-    code bytes in the raw file, so returned offsets are real file offsets."""
+    """(start, end) file offsets of the shopStart function's code within `data`,
+    or None. The function is located with the cft parser, then its (unique)
+    code bytes are found in the raw file, so returned offsets are real file
+    offsets."""
     import os
     import tempfile
     tmp = os.path.join(tempfile.gettempdir(), "shopscan.cft")

@@ -20,7 +20,7 @@ exactly the same length as the original IMAG block, so it is spliced in place
 and every other byte of the file is preserved. Keep replacement PNGs at their
 original dimensions (mismatched sizes are resized back to fit, with a warning).
 
-Note: CMPR is lossy block compression, so a re-imported CMPR texture will not
+CMPR is lossy block compression, so a re-imported CMPR texture will not
 be bit-identical to the original even if the PNG is unchanged. IA4/I4 round
 -trip cleanly within their 4-bit precision.
 """

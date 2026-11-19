@@ -1,8 +1,8 @@
 """
-otm.py - byte-exact reader/writer for FFCC's .otm world-map containers.
+otm.py - Reader/writer for FFCC's .otm world-map containers.
 
 Same 16-byte chunk header as chmio's CHM family: [4 tag][4 big-endian size]
-[4 arg0][4 version], content of `size` bytes, then zero-pad so the WHOLE
+[4 arg0][4 version], content of `size` bytes, then zero-pad so the whole
 header+content span lands on a 16-byte boundary (matches the decomp's
 CChunkFile::GetNextChunk / CMapMng::ReadOtm).
 
@@ -10,9 +10,9 @@ Unlike chmio (which guesses "is this a nested tag" by checking a fixed
 vocabulary against arbitrary byte offsets, since CHM mixes recognized tags
 with raw runs at the same level), .otm chunk nesting is unambiguous: a
 chunk's own tag tells you whether its payload is itself a sequence of
-sub-chunks (CONTAINER) or raw leaf data (VERT/NORM/UV/DLST/...). So we
-recurse only into known containers and keep everything else as an opaque
-byte blob, so an unmodified file round-trips byte-exact.
+sub-chunks (CONTAINER) or raw leaf data (VERT/NORM/UV/DLST/...). So only
+known containers are recursed into and everything else is kept as an opaque
+byte blob, and an unmodified file round-trips unchanged.
 """
 
 import struct
@@ -62,8 +62,8 @@ class Chunk:
 
     def serialize(self):
         body = self.content()
-        # Keep the original pad bytes if content size is unchanged (byte-exact
-        # round-trip), otherwise recompute zero-padding to the 16-byte boundary.
+        # Keep the original pad bytes if content size is unchanged (so the file
+        # round-trips unchanged), otherwise recompute zero-padding to the 16-byte boundary.
         if len(body) == self._clen:
             pad = self.pad
         else:
@@ -142,7 +142,7 @@ def read_colors(node):
 
 
 def read_uvs(node):
-    """UV payload -> [(u, v), ...] of signed int16. NOTE: the fixed-point
+    """UV payload -> [(u, v), ...] of signed int16. The fixed-point
     scale to normalize these is not known (unlike CHM's UV, which is a
     known /4096) - treat exported vt values as approximate."""
     b = node.content()
@@ -168,7 +168,7 @@ if __name__ == "__main__":
     print(f"{path}: {len(data)} bytes  round-trip {'IDENTICAL' if ok else 'DIFFERS'}")
     if not ok:
         i = next((k for k in range(min(len(data), len(rebuilt))) if data[k] != rebuilt[k]), -1)
-        print(f"  len {len(data)} -> {len(rebuilt)}; first diff at {i} "
+        print(f"  len {len(data)} -> {len(rebuilt)}, first diff at {i} "
               f"(orig len {len(data)}, rebuilt len {len(rebuilt)})")
     else:
         print(f"  MESH chunks found: {len(meshes(root))}")

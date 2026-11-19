@@ -5,7 +5,7 @@ A town script's shopStart(case, player, rate) fills the shop menu: it is a
 run of blocks, one per stock list,
 
     if (arg0 == case) {
-        shopRequest(1, item, 0, 0, 0, 0, 0);    one per slot
+        shopRequest(1, item, 0, 0, 0, 0, 0)     one per slot
         ...
     }
 
@@ -20,7 +20,8 @@ fullest list: 40 and 42 never match, 41 becomes `arg0 <= 41` and 43 becomes
 SHOPS lists the shops that are checks. Two shops aren't. The Selkie Peddler
 has no stage of its own (it turns up on other stages' maps), so the logic
 can't say where it is. Tipa's shop is run by a caravan member's family when
-their job is Merchant, so a game without a Merchant family has no shop there. The export writes shop_table.py for the AP world:
+their job is Merchant, so a game without a Merchant family has no shop there.
+The export writes shop_table.py for the AP world:
 
     LOCATIONS = {name: (code, shop key, slot, vanilla item id)}
     SHOPS = {shop key: (display name, town, script, case, slot count)}

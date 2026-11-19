@@ -1,7 +1,7 @@
 """
 dlst.py - lossless codec for FFCC display-list (DLST) content + a triangle-list
-encoder. This is the piece that lets us WRITE new geometry/topology (faces),
-the counterpart to chmio (containers) and objimport (vertices).
+encoder. This is the piece that writes new geometry/topology (faces), the
+counterpart to chmio (containers) and objimport (vertices).
 
 A DLST tag's content is:
     u16 matidx                         material index
@@ -33,12 +33,15 @@ def parse(content):
     matidx = struct.unpack(">H", content[:2])[0]
     items, p, n = [], 2, len(content)
     while p < n:
-        ltype = content[p]; p += 1
+        ltype = content[p]
+        p += 1
         if ltype < 0x90:
-            items.append(("nop", ltype)); continue
+            items.append(("nop", ltype))
+            continue
         if ltype not in VFMT:
             raise ValueError(f"unknown DLST opcode 0x{ltype:02x} at {p-1}")
-        size = struct.unpack(">H", content[p:p + 2])[0]; p += 2
+        size = struct.unpack(">H", content[p:p + 2])[0]
+        p += 2
         k = VFMT[ltype]
         verts = []
         for _ in range(size):
@@ -49,7 +52,7 @@ def parse(content):
 
 
 def encode(matidx, items):
-    """Inverse of parse(): (matidx, items) -> content bytes (byte-exact)."""
+    """Inverse of parse(): (matidx, items) -> the same content bytes."""
     out = bytearray(struct.pack(">H", matidx))
     for it in items:
         if it[0] == "nop":

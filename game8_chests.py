@@ -209,7 +209,7 @@ def reference_text(dungeon):
     """Human-readable 'Chest N can contain: ...' reference for a dungeon."""
     if dungeon not in CHESTS:
         return f"(no Game8 chest data for {dungeon})"
-    lines = [f"{dungeon} - chest contents (varies by cycle; '/' = possible items):", ""]
+    lines = [f"{dungeon} - chest contents (varies by cycle, '/' = possible items):", ""]
     for cn in sorted(CHESTS[dungeon]):
         lines.append(f"  Chest {cn}: " + " / ".join(CHESTS[dungeon][cn]))
     return "\n".join(lines)
@@ -253,11 +253,11 @@ def label_sets(parsed_sets, dungeon):
                 labels[i] = cn
                 used_specific.add(cn)
                 break
-    # pass 3: weaker single-item match for chests STILL unmatched (e.g. small
+    # pass 3: weaker single-item match for chests still unmatched (e.g. small
     # scroll chests like Faerie Kit/Angel Kit whose two items split across sets).
     # Each remaining chest claims the unlabeled set holding the most of its
-    # distinctive items. Items UNIQUE to one chest count double so a chest grabs
-    # the set that really implies it (and we avoid generic magicite via _specific).
+    # distinctive items. Items unique to one chest count double so a chest grabs
+    # the set that really implies it (_specific leaves out generic magicite).
     import collections
     item_chests = collections.defaultdict(set)
     for cn, want in cs.items():
@@ -278,7 +278,7 @@ def label_sets(parsed_sets, dungeon):
             if score > best_score:
                 best_i, best_score = i, score
         # require score >= 2: either two of the chest's items, or one item that
-        # is UNIQUE to this chest - avoids grabbing a drop set on a single shared item
+        # is unique to this chest - avoids grabbing a drop set on a single shared item
         if best_i is not None and best_score >= 2:
             labels[best_i] = cn
             used_specific.add(cn)
