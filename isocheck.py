@@ -10,12 +10,13 @@ partway, or worse, patch the wrong bytes. check() looks at, in order:
     the game           GCCE01 (not the European GCCP01 or Japanese GCCJGC)
     the revision       0, the only North American one
     Start.dol          its SHA-1 matches the retail one
-    the file table     its SHA-1 matches, so no file was added, moved or resized
+    the file list      a SHA-1 over every file's name and size matches, so no
+                       file was added, removed or resized
     the files          a SHA-1 over every file's contents matches
 
 The first five are errors. A content mismatch is only a warning, since it
-could be a dump the patcher hasn't seen. Full and trimmed dumps of the same
-disc give the same result, because only the header and the files are read.
+could be a dump the patcher hasn't seen. Where the files sit on the disc is
+not checked, so full, trimmed and rebuilt images of the same disc all pass.
 
 Usage:
     py isocheck.py <game.iso>
@@ -29,8 +30,8 @@ import gciso
 GAME_ID = "GCCE01"
 REVISION = 0
 DOL_SHA1 = "ba57add3e93ea97b0a93ed77037173217bc89eaa"      # also the decomp's retail hash
-FST_SHA1 = "e1ce5d8545daad82e4e7f52c57a91c4aa162b27b"
-CONTENT_SHA1 = "140abce6b3ff2bd657c051d483ea6da7ad4c1fcf"
+FILE_LIST_SHA1 = "8097400410ac80ff5c17821750061e9145185d7f"
+CONTENT_SHA1 = "8f9673be108d05fbb6c2994674803c52ca863563"
 GAMECUBE_MAGIC = bytes.fromhex("c2339f3d")                 # at 0x1C of every GameCube disc
 
 OTHER_REGIONS = {"GCCP01": "European (PAL)", "GCCJGC": "Japanese", "GCCJ01": "Japanese"}
@@ -45,6 +46,14 @@ COMPRESSED = {
 CONVERT = ("Convert it to a plain ISO first: in Dolphin, right-click the game, choose "
            "\"Convert File...\" and pick ISO as the format.")
 CLEAN_COPY = "Start from a clean, unmodified copy of the North American (NTSC-U) game."
+
+
+def file_list_sha1(files):
+    """SHA-1 over every file's path and size, in path order."""
+    h = hashlib.sha1()
+    for path, _, size in sorted(files):
+        h.update(f"{path}\0{size}\n".encode("utf-8"))
+    return h.hexdigest()
 
 
 def content_sha1(f, files):
@@ -88,13 +97,11 @@ def check(iso, full=True):
         f.seek(off)
         if hashlib.sha1(f.read(size)).hexdigest() != DOL_SHA1:
             return [f"This ISO's game code (Start.dol) has been patched or modified. {CLEAN_COPY}"], []
-        _, fst_off, fst_size = gciso.read_header(f)
-        f.seek(fst_off)
-        if hashlib.sha1(f.read(fst_size)).hexdigest() != FST_SHA1:
-            return [f"Files on this ISO have been added, moved or resized, so it has already been "
+        _, files = gciso.parse_fst(f)
+        if file_list_sha1(files) != FILE_LIST_SHA1:
+            return [f"Files on this ISO have been added, removed or resized, so it has already been "
                     f"patched or modified. {CLEAN_COPY}"], []
         if full:
-            _, files = gciso.parse_fst(f)
             if content_sha1(f, files) != CONTENT_SHA1:
                 return [], ["Some files on this ISO differ from the clean game, so it may have been "
                             "edited (for example with the Chest Editor). Patching a modified ISO can "
